@@ -1,6 +1,61 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+
+// ─── Token helpers ───
+function formatTokens(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+  return n.toString();
+}
+
+function estimateCost(tokens) {
+  // Rough estimate: average of input ($3/M) and output ($15/M) = ~$9/M blended
+  return (tokens / 1000000 * 9).toFixed(2);
+}
+
+function tokenPercentage(used, limit) {
+  if (!limit) return 0;
+  return Math.min(Math.round((used / limit) * 100), 100);
+}
+
+function tokenBarColor(pct) {
+  if (pct >= 90) return 'from-red-500 to-red-600';
+  if (pct >= 70) return 'from-amber-500 to-orange-500';
+  return 'from-emerald-500 to-green-500';
+}
+
+// ─── Token display component ───
+function TokenBar({ used, limit, showCost = false, size = 'normal' }) {
+  const pct = tokenPercentage(used || 0, limit || 50000);
+  const isSmall = size === 'small';
+
+  return (
+    <div className={isSmall ? '' : 'space-y-1'}>
+      <div className="flex items-center justify-between">
+        <span className={`font-semibold ${isSmall ? 'text-[10px] text-slate-500' : 'text-xs text-slate-600'}`}>
+          {formatTokens(used || 0)} / {formatTokens(limit || 50000)} tokens
+        </span>
+        <span className={`font-bold ${isSmall ? 'text-[10px]' : 'text-xs'} ${
+          pct >= 90 ? 'text-red-600' : pct >= 70 ? 'text-amber-600' : 'text-emerald-600'
+        }`}>
+          {pct}%
+        </span>
+      </div>
+      <div className={`w-full bg-slate-200 rounded-full ${isSmall ? 'h-1 mt-0.5' : 'h-2'}`}>
+        <div
+          className={`h-full rounded-full bg-gradient-to-r ${tokenBarColor(pct)} transition-all duration-500`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {showCost && (
+        <div className="text-[10px] text-slate-400">
+          Coût estimé : ~{estimateCost(used || 0)}$
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const [authenticated, setAuthenticated] = useState(false);
@@ -9,7 +64,7 @@ export default function Dashboard() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [view, setView] = useState('list'); // list | new | chat
+  const [view, setView] = useState('list');
   const [selectedProject, setSelectedProject] = useState(null);
   const [messages, setMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
@@ -18,14 +73,19 @@ export default function Dashboard() {
   const [exporting, setExporting] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [copied, setCopied] = useState(null);
+  const [editingLimit, setEditingLimit] = useState(null);
+  const [newLimitValue, setNewLimitValue] = useState('');
+  const [limitReached, setLimitReached] = useState(false);
 
   // New project form
   const [newName, setNewName] = useState('');
   const [newClient, setNewClient] = useState('');
   const [newUrl, setNewUrl] = useState('');
   const [newContext, setNewContext] = useState('');
+  const [newTokensLimit, setNewTokensLimit] = useState('50000');
 
-  // Check stored password
+  const chatEndRef = useRef(null);
+
   useEffect(() => {
     const pw = sessionStorage.getItem('briefbot_pw');
     if (pw) {
@@ -34,6 +94,10 @@ export default function Dashboard() {
       loadProjects(pw);
     }
   }, []);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, chatLoading]);
 
   const login = async () => {
     if (!password.trim()) return;
@@ -79,12 +143,13 @@ export default function Dashboard() {
           client_name: newClient.trim(),
           url: newUrl.trim(),
           context: newContext.trim(),
+          tokens_limit: parseInt(newTokensLimit) || 50000,
           password: storedPw,
         }),
       });
       const data = await res.json();
       if (data.project) {
-        setNewName(''); setNewClient(''); setNewUrl(''); setNewContext('');
+        setNewName(''); setNewClient(''); setNewUrl(''); setNewContext(''); setNewTokensLimit('50000');
         await loadProjects();
         openProject(data.project);
       }
@@ -104,10 +169,27 @@ export default function Dashboard() {
     await loadProjects();
   };
 
+  const updateTokenLimit = async (projectId) => {
+    const newLimit = parseInt(newLimitValue);
+    if (!newLimit || newLimit < 1000) return;
+    await fetch('/api/projects', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId, tokens_limit: newLimit, password: storedPw }),
+    });
+    setEditingLimit(null);
+    setNewLimitValue('');
+    await loadProjects();
+    // Update selected project if we're in chat
+    if (selectedProject?.id === projectId) {
+      setSelectedProject(prev => ({ ...prev, tokens_limit: newLimit }));
+    }
+  };
+
   const openProject = async (project) => {
     setSelectedProject(project);
     setView('chat');
-    // Load messages
+    setLimitReached(false);
     const { supabase } = await import('@/lib/supabase');
     const { data } = await supabase
       .from('messages')
@@ -124,9 +206,9 @@ export default function Dashboard() {
     setTimeout(() => setCopied(null), 2000);
   };
 
-  // ─── Chat functions ───
+  // ─── Chat ───
   const sendMessage = async () => {
-    if (!chatInput.trim() || chatLoading) return;
+    if (!chatInput.trim() || chatLoading || limitReached) return;
     const userMsg = { role: 'user', content: chatInput.trim(), mode, created_at: new Date().toISOString() };
     setMessages(prev => [...prev, userMsg]);
     setChatInput('');
@@ -140,9 +222,25 @@ export default function Dashboard() {
         body: JSON.stringify({ projectId: selectedProject.id, message: userMsg.content, mode }),
       });
       const data = await res.json();
+
+      if (data.limit_reached) {
+        setLimitReached(true);
+        setError('⚠️ Limite de tokens atteinte pour ce projet.');
+        // Remove the user message we optimistically added
+        setMessages(prev => prev.slice(0, -1));
+        setChatLoading(false);
+        return;
+      }
+
       if (data.error) throw new Error(data.error);
+
       const aiMsg = { role: 'assistant', content: data.content, mode, created_at: new Date().toISOString() };
       setMessages(prev => [...prev, aiMsg]);
+
+      // Update token count locally
+      if (data.tokens_used !== undefined) {
+        setSelectedProject(prev => ({ ...prev, tokens_used: data.tokens_used }));
+      }
 
       const phaseMatch = data.content.match(/✅\s*Phase\s*(\d+)/);
       if (phaseMatch) {
@@ -160,7 +258,7 @@ export default function Dashboard() {
   };
 
   const goToPhase = async (phaseId) => {
-    if (chatLoading) return;
+    if (chatLoading || limitReached) return;
     await fetch('/api/projects/phase', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -182,8 +280,18 @@ export default function Dashboard() {
         body: JSON.stringify({ projectId: selectedProject.id, message: msg, mode }),
       });
       const data = await res.json();
+      if (data.limit_reached) {
+        setLimitReached(true);
+        setError('⚠️ Limite de tokens atteinte.');
+        setMessages(prev => prev.slice(0, -1));
+        setChatLoading(false);
+        return;
+      }
       if (data.error) throw new Error(data.error);
       setMessages(prev => [...prev, { role: 'assistant', content: data.content, mode, created_at: new Date().toISOString() }]);
+      if (data.tokens_used !== undefined) {
+        setSelectedProject(prev => ({ ...prev, tokens_used: data.tokens_used }));
+      }
     } catch (e) {
       setError('Erreur : ' + e.message);
     }
@@ -213,36 +321,27 @@ export default function Dashboard() {
     setExporting(false);
   };
 
-  // ─── LOGIN VIEW ───
+  // Markdown
+  const renderMd = (text) => {
+    if (!text) return '';
+    return text
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      .replace(/\n/g, '<br/>');
+  };
+
+  // ─── LOGIN ───
   if (!authenticated) {
     return (
       <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-orange-50/40">
         <div className="w-full max-w-sm mx-auto px-6">
           <div className="text-center mb-8">
-            <div className="inline-flex items-center gap-2 bg-white border border-slate-200 rounded-full px-4 py-1.5 text-xs font-semibold text-slate-500 mb-4 shadow-sm">
-              🤖 BRIEFBOT
-            </div>
+            <div className="inline-flex items-center gap-2 bg-white border border-slate-200 rounded-full px-4 py-1.5 text-xs font-semibold text-slate-500 mb-4 shadow-sm">🤖 BRIEFBOT</div>
             <h1 className="text-2xl font-bold text-slate-800">Dashboard Consultant</h1>
           </div>
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl mb-4">
-              {error}
-            </div>
-          )}
-          <input
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && login()}
-            placeholder="Mot de passe consultant"
-            className="w-full px-4 py-3 border border-slate-300 rounded-xl text-sm mb-3"
-            autoFocus
-          />
-          <button
-            onClick={login}
-            disabled={loading}
-            className="w-full py-3 bg-slate-800 text-white rounded-xl text-sm font-bold hover:bg-slate-700 transition-all"
-          >
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl mb-4">{error}</div>}
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && login()} placeholder="Mot de passe consultant" className="w-full px-4 py-3 border border-slate-300 rounded-xl text-sm mb-3" autoFocus />
+          <button onClick={login} disabled={loading} className="w-full py-3 bg-slate-800 text-white rounded-xl text-sm font-bold hover:bg-slate-700 transition-all">
             {loading ? 'Connexion...' : 'Accéder'}
           </button>
         </div>
@@ -250,14 +349,12 @@ export default function Dashboard() {
     );
   }
 
-  // ─── NEW PROJECT VIEW ───
+  // ─── NEW PROJECT ───
   if (view === 'new') {
     return (
       <div className="h-screen bg-gradient-to-br from-slate-50 via-white to-orange-50/40 overflow-auto">
         <div className="max-w-xl mx-auto px-6 py-12">
-          <button onClick={() => setView('list')} className="text-sm text-slate-500 hover:text-slate-700 mb-6 flex items-center gap-1">
-            ← Retour
-          </button>
+          <button onClick={() => setView('list')} className="text-sm text-slate-500 hover:text-slate-700 mb-6">← Retour</button>
           <h1 className="text-2xl font-bold text-slate-800 mb-1">Nouveau projet</h1>
           <p className="text-slate-500 text-sm mb-8">Le reste sera collecté par l'IA pendant le briefing.</p>
 
@@ -275,8 +372,25 @@ export default function Dashboard() {
               <input type="text" value={newUrl} onChange={e => setNewUrl(e.target.value)} placeholder="Ex: https://monkeykwest.com" className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm bg-white" />
             </div>
             <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Limite de tokens</label>
+              <p className="text-xs text-slate-400 mb-2">50 000 tokens ≈ 30-40 échanges ≈ ~0.45$. Tu peux augmenter plus tard.</p>
+              <div className="flex gap-2">
+                {['25000', '50000', '100000', '200000'].map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setNewTokensLimit(v)}
+                    className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all ${
+                      newTokensLimit === v ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    {formatTokens(parseInt(v))} (~{estimateCost(parseInt(v))}$)
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
               <label className="block text-sm font-semibold text-slate-700 mb-1.5">Contexte initial <span className="font-normal text-slate-400">(optionnel)</span></label>
-              <p className="text-xs text-slate-400 mb-2">Transcription d'appel, notes, brief existant… L'IA s'en servira.</p>
+              <p className="text-xs text-slate-400 mb-2">Transcription d'appel, notes, brief existant…</p>
               <textarea value={newContext} onChange={e => setNewContext(e.target.value)} placeholder="Collez vos notes ici..." rows={6} className="w-full px-4 py-3 border border-slate-300 rounded-xl text-sm bg-white resize-none" />
             </div>
             <button
@@ -294,49 +408,57 @@ export default function Dashboard() {
     );
   }
 
-  // ─── CHAT VIEW ───
+  // ─── CHAT ───
   if (view === 'chat' && selectedProject) {
     const PHASES = require('@/lib/phases').PHASES;
     const currentPhase = PHASES.find(p => p.id === (selectedProject.current_phase || 1));
 
-    // Render markdown
-    const renderMd = (text) => {
-      if (!text) return '';
-      return text
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        .replace(/\n/g, '<br/>');
-    };
-
     return (
       <div className="h-screen flex bg-slate-50 overflow-hidden">
-        {/* Sidebar */}
         {sidebarOpen && (
           <div className="w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0">
             <div className="p-4 border-b border-slate-100">
-              <button onClick={() => { setView('list'); setSelectedProject(null); }} className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1 mb-3">
-                ← Projets
-              </button>
+              <button onClick={() => { setView('list'); setSelectedProject(null); }} className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1 mb-3">← Projets</button>
               <h2 className="font-bold text-slate-800 text-sm truncate">{selectedProject.name}</h2>
               <p className="text-xs text-slate-400 truncate">{selectedProject.client_name}</p>
-              <button
-                onClick={() => copyShareLink(selectedProject.share_token)}
-                className="mt-2 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-2 py-1 rounded-md hover:bg-amber-100 transition-all"
-              >
+              <button onClick={() => copyShareLink(selectedProject.share_token)} className="mt-2 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-2 py-1 rounded-md hover:bg-amber-100 transition-all">
                 {copied === selectedProject.share_token ? '✅ Copié !' : '🔗 Copier le lien client'}
               </button>
+            </div>
+
+            {/* Token counter */}
+            <div className="px-4 py-3 border-b border-slate-100">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Consommation API</label>
+              <div className="mt-2">
+                <TokenBar used={selectedProject.tokens_used} limit={selectedProject.tokens_limit} showCost={true} />
+              </div>
+              <button
+                onClick={() => { setEditingLimit(selectedProject.id); setNewLimitValue(String(selectedProject.tokens_limit || 50000)); }}
+                className="mt-2 text-[10px] text-blue-600 hover:underline"
+              >
+                Modifier la limite
+              </button>
+              {editingLimit === selectedProject.id && (
+                <div className="mt-2 flex gap-1.5 animate-fade-in">
+                  <input
+                    type="number"
+                    value={newLimitValue}
+                    onChange={e => setNewLimitValue(e.target.value)}
+                    className="flex-1 px-2 py-1 border border-slate-300 rounded-md text-xs"
+                    placeholder="Ex: 100000"
+                  />
+                  <button onClick={() => updateTokenLimit(selectedProject.id)} className="px-2 py-1 bg-blue-600 text-white rounded-md text-xs font-semibold">OK</button>
+                  <button onClick={() => setEditingLimit(null)} className="px-2 py-1 text-slate-500 text-xs">✕</button>
+                </div>
+              )}
             </div>
 
             {/* Mode toggle */}
             <div className="px-4 py-3 border-b border-slate-100">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Mode</label>
               <div className="flex mt-1.5 bg-slate-100 rounded-lg p-0.5">
-                <button onClick={() => setMode('client')} className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${mode === 'client' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>
-                  👤 Client
-                </button>
-                <button onClick={() => setMode('consultant')} className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${mode === 'consultant' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>
-                  🔧 Consultant
-                </button>
+                <button onClick={() => setMode('client')} className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${mode === 'client' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>👤 Client</button>
+                <button onClick={() => setMode('consultant')} className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${mode === 'consultant' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>🔧 Consultant</button>
               </div>
             </div>
 
@@ -365,7 +487,6 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {/* Export */}
             <div className="p-3 border-t border-slate-100">
               <button
                 onClick={handleExport}
@@ -382,7 +503,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Main chat */}
         <div className="flex-1 flex flex-col min-w-0">
           <div className="h-14 bg-white border-b border-slate-200 flex items-center px-4 gap-3 flex-shrink-0">
             <button onClick={() => setSidebarOpen(!sidebarOpen)} className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-slate-200 text-sm">
@@ -392,18 +512,27 @@ export default function Dashboard() {
               <span className="text-sm font-semibold text-slate-800">{selectedProject.client_name}</span>
               <span className="text-xs text-slate-400 ml-2">Phase {selectedProject.current_phase || 1} — {currentPhase?.name}</span>
             </div>
-            <div className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${mode === 'consultant' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
-              {mode === 'consultant' ? '🔧 Consultant' : '👤 Client'}
+            <div className="flex items-center gap-3">
+              {/* Mini token bar in top bar */}
+              <div className="w-24 hidden sm:block">
+                <TokenBar used={selectedProject.tokens_used} limit={selectedProject.tokens_limit} size="small" />
+              </div>
+              <div className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${mode === 'consultant' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                {mode === 'consultant' ? '🔧 Consultant' : '👤 Client'}
+              </div>
             </div>
           </div>
 
           {error && (
-            <div className="bg-red-50 border-b border-red-200 text-red-700 text-xs px-4 py-2">
-              {error} <button onClick={() => setError(null)} className="font-bold ml-3">✕</button>
+            <div className={`border-b text-xs px-4 py-2 flex items-center justify-between ${
+              limitReached ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-red-50 border-red-200 text-red-700'
+            }`}>
+              <span>{error}</span>
+              <button onClick={() => { setError(null); setLimitReached(false); }} className="font-bold ml-3">✕</button>
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto px-6 py-6" ref={el => el && (el.scrollTop = el.scrollHeight)}>
+          <div className="flex-1 overflow-y-auto px-6 py-6">
             {messages.map((m, i) => (
               <div key={i} className={`flex gap-3 ${m.role === 'user' ? 'flex-row-reverse' : ''} mb-5 animate-fade-in`}>
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-sm shadow-sm ${
@@ -438,30 +567,37 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
+            <div ref={chatEndRef} />
           </div>
 
           <div className="border-t border-slate-200 bg-white p-4">
-            <div className="flex gap-3 items-end max-w-4xl mx-auto">
-              <textarea
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                placeholder={mode === 'consultant' ? 'Question ou analyse...' : 'Répondez à BriefBot...'}
-                rows={1}
-                className="flex-1 px-4 py-3 border border-slate-300 rounded-xl text-sm resize-none bg-slate-50 focus:bg-white transition-colors"
-                style={{ minHeight: '44px', maxHeight: '120px' }}
-                onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
-              />
-              <button
-                onClick={sendMessage}
-                disabled={!chatInput.trim() || chatLoading}
-                className={`px-5 py-3 rounded-xl text-sm font-bold transition-all ${
-                  chatInput.trim() && !chatLoading ? 'bg-slate-800 text-white hover:bg-slate-700 shadow-md' : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                }`}
-              >
-                Envoyer
-              </button>
-            </div>
+            {limitReached ? (
+              <div className="text-center py-3 text-sm text-amber-700 bg-amber-50 rounded-xl border border-amber-200">
+                ⚠️ Limite de tokens atteinte. <button onClick={() => { setEditingLimit(selectedProject.id); setNewLimitValue(String((selectedProject.tokens_limit || 50000) * 2)); setSidebarOpen(true); }} className="font-bold underline">Augmenter la limite</button>
+              </div>
+            ) : (
+              <div className="flex gap-3 items-end max-w-4xl mx-auto">
+                <textarea
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                  placeholder={mode === 'consultant' ? 'Question ou analyse...' : 'Répondez à BriefBot...'}
+                  rows={1}
+                  className="flex-1 px-4 py-3 border border-slate-300 rounded-xl text-sm resize-none bg-slate-50 focus:bg-white transition-colors"
+                  style={{ minHeight: '44px', maxHeight: '120px' }}
+                  onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
+                />
+                <button
+                  onClick={sendMessage}
+                  disabled={!chatInput.trim() || chatLoading}
+                  className={`px-5 py-3 rounded-xl text-sm font-bold transition-all ${
+                    chatInput.trim() && !chatLoading ? 'bg-slate-800 text-white hover:bg-slate-700 shadow-md' : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                  }`}
+                >
+                  Envoyer
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -473,26 +609,18 @@ export default function Dashboard() {
     <div className="h-screen bg-gradient-to-br from-slate-50 via-white to-orange-50/40 overflow-auto">
       <div className="max-w-3xl mx-auto px-6 py-12">
         <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-2 bg-white border border-slate-200 rounded-full px-4 py-1.5 text-xs font-semibold text-slate-500 mb-4 shadow-sm">
-            🤖 BRIEFBOT — Dashboard
-          </div>
+          <div className="inline-flex items-center gap-2 bg-white border border-slate-200 rounded-full px-4 py-1.5 text-xs font-semibold text-slate-500 mb-4 shadow-sm">🤖 BRIEFBOT — Dashboard</div>
           <h1 className="text-3xl font-bold text-slate-800 mb-2">Mes projets</h1>
           <p className="text-slate-500 text-sm">Briefings stratégiques en cours</p>
         </div>
 
         <div className="flex gap-3 mb-8 justify-center">
-          <button onClick={() => setView('new')} className="bg-slate-800 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-slate-700 transition-all shadow-md">
-            + Nouveau projet
-          </button>
-          <button onClick={() => loadProjects()} className="bg-white text-slate-700 border border-slate-300 px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50">
-            🔄 Actualiser
-          </button>
+          <button onClick={() => setView('new')} className="bg-slate-800 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-slate-700 transition-all shadow-md">+ Nouveau projet</button>
+          <button onClick={() => loadProjects()} className="bg-white text-slate-700 border border-slate-300 px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50">🔄 Actualiser</button>
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl mb-6">
-            {error} <button onClick={() => setError(null)} className="font-bold ml-3">✕</button>
-          </div>
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl mb-6">{error} <button onClick={() => setError(null)} className="font-bold ml-3">✕</button></div>
         )}
 
         {loading ? (
@@ -501,38 +629,35 @@ export default function Dashboard() {
           <div className="text-center py-16 text-slate-400">
             <div className="text-5xl mb-4">📋</div>
             <p className="font-medium">Aucun projet</p>
-            <p className="text-sm mt-1">Créez votre premier briefing</p>
           </div>
         ) : (
           <div className="grid gap-3">
             {projects.map(p => (
               <div
                 key={p.id}
-                className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4 hover:shadow-md transition-all group cursor-pointer"
+                className="bg-white rounded-xl border border-slate-200 p-4 hover:shadow-md transition-all group cursor-pointer"
                 onClick={() => openProject(p)}
               >
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-lg shadow-sm">
-                  {p.client_name?.[0]?.toUpperCase() || '?'}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-slate-800 truncate">{p.name}</div>
-                  <div className="text-xs text-slate-400">
-                    {p.client_name} · Phase {p.current_phase || 1}/10 · {(p.phases_completed || []).length} complétées
+                <div className="flex items-center gap-4">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-lg shadow-sm flex-shrink-0">
+                    {p.client_name?.[0]?.toUpperCase() || '?'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-slate-800 truncate">{p.name}</div>
+                    <div className="text-xs text-slate-400">
+                      {p.client_name} · Phase {p.current_phase || 1}/10
+                    </div>
+                  </div>
+                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                    <button onClick={() => copyShareLink(p.share_token)} className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1.5 rounded-lg hover:bg-amber-100">
+                      {copied === p.share_token ? '✅' : '🔗'}
+                    </button>
+                    <button onClick={() => deleteProject(p.id)} className="text-xs bg-red-50 text-red-500 px-2.5 py-1.5 rounded-lg hover:bg-red-100">🗑</button>
                   </div>
                 </div>
-                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-                  <button
-                    onClick={() => copyShareLink(p.share_token)}
-                    className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1.5 rounded-lg hover:bg-amber-100"
-                  >
-                    {copied === p.share_token ? '✅' : '🔗'} Lien client
-                  </button>
-                  <button
-                    onClick={() => deleteProject(p.id)}
-                    className="text-xs bg-red-50 text-red-500 px-2.5 py-1.5 rounded-lg hover:bg-red-100"
-                  >
-                    🗑
-                  </button>
+                {/* Token bar on project card */}
+                <div className="mt-3 px-1">
+                  <TokenBar used={p.tokens_used} limit={p.tokens_limit} size="small" />
                 </div>
               </div>
             ))}
