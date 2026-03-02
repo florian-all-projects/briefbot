@@ -1,0 +1,544 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+
+export default function Dashboard() {
+  const [authenticated, setAuthenticated] = useState(false);
+  const [password, setPassword] = useState('');
+  const [storedPw, setStoredPw] = useState('');
+  const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [view, setView] = useState('list'); // list | new | chat
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [mode, setMode] = useState('consultant');
+  const [exporting, setExporting] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [copied, setCopied] = useState(null);
+
+  // New project form
+  const [newName, setNewName] = useState('');
+  const [newClient, setNewClient] = useState('');
+  const [newUrl, setNewUrl] = useState('');
+  const [newContext, setNewContext] = useState('');
+
+  // Check stored password
+  useEffect(() => {
+    const pw = sessionStorage.getItem('briefbot_pw');
+    if (pw) {
+      setStoredPw(pw);
+      setAuthenticated(true);
+      loadProjects(pw);
+    }
+  }, []);
+
+  const login = async () => {
+    if (!password.trim()) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/projects?pw=${encodeURIComponent(password)}`);
+      if (res.ok) {
+        const data = await res.json();
+        sessionStorage.setItem('briefbot_pw', password);
+        setStoredPw(password);
+        setAuthenticated(true);
+        setProjects(data.projects || []);
+      } else {
+        setError('Mot de passe incorrect');
+      }
+    } catch (e) {
+      setError('Erreur de connexion');
+    }
+    setLoading(false);
+  };
+
+  const loadProjects = async (pw) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/projects?pw=${encodeURIComponent(pw || storedPw)}`);
+      const data = await res.json();
+      setProjects(data.projects || []);
+    } catch (e) {
+      setError('Erreur de chargement');
+    }
+    setLoading(false);
+  };
+
+  const createProject = async () => {
+    if (!newName.trim() || !newClient.trim()) return;
+    setLoading(true);
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newName.trim(),
+          client_name: newClient.trim(),
+          url: newUrl.trim(),
+          context: newContext.trim(),
+          password: storedPw,
+        }),
+      });
+      const data = await res.json();
+      if (data.project) {
+        setNewName(''); setNewClient(''); setNewUrl(''); setNewContext('');
+        await loadProjects();
+        openProject(data.project);
+      }
+    } catch (e) {
+      setError('Erreur de création');
+    }
+    setLoading(false);
+  };
+
+  const deleteProject = async (id) => {
+    if (!confirm('Supprimer ce projet et toutes ses données ?')) return;
+    await fetch('/api/projects', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId: id, password: storedPw }),
+    });
+    await loadProjects();
+  };
+
+  const openProject = async (project) => {
+    setSelectedProject(project);
+    setView('chat');
+    // Load messages
+    const { supabase } = await import('@/lib/supabase');
+    const { data } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('project_id', project.id)
+      .order('created_at', { ascending: true });
+    setMessages(data || []);
+  };
+
+  const copyShareLink = (token) => {
+    const url = `${window.location.origin}/p/${token}`;
+    navigator.clipboard.writeText(url);
+    setCopied(token);
+    setTimeout(() => setCopied(null), 2000);
+  };
+
+  // ─── Chat functions ───
+  const sendMessage = async () => {
+    if (!chatInput.trim() || chatLoading) return;
+    const userMsg = { role: 'user', content: chatInput.trim(), mode, created_at: new Date().toISOString() };
+    setMessages(prev => [...prev, userMsg]);
+    setChatInput('');
+    setChatLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: selectedProject.id, message: userMsg.content, mode }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const aiMsg = { role: 'assistant', content: data.content, mode, created_at: new Date().toISOString() };
+      setMessages(prev => [...prev, aiMsg]);
+
+      const phaseMatch = data.content.match(/✅\s*Phase\s*(\d+)/);
+      if (phaseMatch) {
+        const completedId = parseInt(phaseMatch[1]);
+        setSelectedProject(prev => ({
+          ...prev,
+          phases_completed: [...new Set([...(prev.phases_completed || []), completedId])],
+          current_phase: Math.min(completedId + 1, 10),
+        }));
+      }
+    } catch (e) {
+      setError('Erreur : ' + e.message);
+    }
+    setChatLoading(false);
+  };
+
+  const goToPhase = async (phaseId) => {
+    if (chatLoading) return;
+    await fetch('/api/projects/phase', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId: selectedProject.id, phaseId }),
+    });
+    setSelectedProject(prev => ({ ...prev, current_phase: phaseId }));
+
+    const PHASES = (await import('@/lib/phases')).PHASES;
+    const phaseName = PHASES.find(p => p.id === phaseId)?.name;
+    const msg = `Je souhaite maintenant travailler sur la Phase ${phaseId} — ${phaseName}.`;
+    const userMsg = { role: 'user', content: msg, mode, created_at: new Date().toISOString() };
+    setMessages(prev => [...prev, userMsg]);
+    setChatLoading(true);
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: selectedProject.id, message: msg, mode }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setMessages(prev => [...prev, { role: 'assistant', content: data.content, mode, created_at: new Date().toISOString() }]);
+    } catch (e) {
+      setError('Erreur : ' + e.message);
+    }
+    setChatLoading(false);
+  };
+
+  const handleExport = async () => {
+    if (exporting || messages.length < 2) return;
+    setExporting(true);
+    try {
+      const res = await fetch('/api/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: selectedProject.id }),
+      });
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Brief_${selectedProject.client_name.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.doc`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (e) {
+      setError('Erreur export : ' + e.message);
+    }
+    setExporting(false);
+  };
+
+  // ─── LOGIN VIEW ───
+  if (!authenticated) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-orange-50/40">
+        <div className="w-full max-w-sm mx-auto px-6">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center gap-2 bg-white border border-slate-200 rounded-full px-4 py-1.5 text-xs font-semibold text-slate-500 mb-4 shadow-sm">
+              🤖 BRIEFBOT
+            </div>
+            <h1 className="text-2xl font-bold text-slate-800">Dashboard Consultant</h1>
+          </div>
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl mb-4">
+              {error}
+            </div>
+          )}
+          <input
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && login()}
+            placeholder="Mot de passe consultant"
+            className="w-full px-4 py-3 border border-slate-300 rounded-xl text-sm mb-3"
+            autoFocus
+          />
+          <button
+            onClick={login}
+            disabled={loading}
+            className="w-full py-3 bg-slate-800 text-white rounded-xl text-sm font-bold hover:bg-slate-700 transition-all"
+          >
+            {loading ? 'Connexion...' : 'Accéder'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── NEW PROJECT VIEW ───
+  if (view === 'new') {
+    return (
+      <div className="h-screen bg-gradient-to-br from-slate-50 via-white to-orange-50/40 overflow-auto">
+        <div className="max-w-xl mx-auto px-6 py-12">
+          <button onClick={() => setView('list')} className="text-sm text-slate-500 hover:text-slate-700 mb-6 flex items-center gap-1">
+            ← Retour
+          </button>
+          <h1 className="text-2xl font-bold text-slate-800 mb-1">Nouveau projet</h1>
+          <p className="text-slate-500 text-sm mb-8">Le reste sera collecté par l'IA pendant le briefing.</p>
+
+          <div className="space-y-5">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Nom du projet *</label>
+              <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Ex: Refonte MonkeyKwest" className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm bg-white" />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Nom du client *</label>
+              <input type="text" value={newClient} onChange={e => setNewClient(e.target.value)} placeholder="Ex: MonkeyKwest" className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm bg-white" />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1.5">URL du site actuel</label>
+              <input type="text" value={newUrl} onChange={e => setNewUrl(e.target.value)} placeholder="Ex: https://monkeykwest.com" className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm bg-white" />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Contexte initial <span className="font-normal text-slate-400">(optionnel)</span></label>
+              <p className="text-xs text-slate-400 mb-2">Transcription d'appel, notes, brief existant… L'IA s'en servira.</p>
+              <textarea value={newContext} onChange={e => setNewContext(e.target.value)} placeholder="Collez vos notes ici..." rows={6} className="w-full px-4 py-3 border border-slate-300 rounded-xl text-sm bg-white resize-none" />
+            </div>
+            <button
+              onClick={createProject}
+              disabled={!newName.trim() || !newClient.trim() || loading}
+              className={`w-full py-3 rounded-xl text-sm font-bold transition-all shadow-md ${
+                newName.trim() && newClient.trim() ? 'bg-slate-800 text-white hover:bg-slate-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+              }`}
+            >
+              {loading ? 'Création...' : 'Créer et démarrer →'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── CHAT VIEW ───
+  if (view === 'chat' && selectedProject) {
+    const PHASES = require('@/lib/phases').PHASES;
+    const currentPhase = PHASES.find(p => p.id === (selectedProject.current_phase || 1));
+
+    // Render markdown
+    const renderMd = (text) => {
+      if (!text) return '';
+      return text
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/\n/g, '<br/>');
+    };
+
+    return (
+      <div className="h-screen flex bg-slate-50 overflow-hidden">
+        {/* Sidebar */}
+        {sidebarOpen && (
+          <div className="w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0">
+            <div className="p-4 border-b border-slate-100">
+              <button onClick={() => { setView('list'); setSelectedProject(null); }} className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1 mb-3">
+                ← Projets
+              </button>
+              <h2 className="font-bold text-slate-800 text-sm truncate">{selectedProject.name}</h2>
+              <p className="text-xs text-slate-400 truncate">{selectedProject.client_name}</p>
+              <button
+                onClick={() => copyShareLink(selectedProject.share_token)}
+                className="mt-2 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-2 py-1 rounded-md hover:bg-amber-100 transition-all"
+              >
+                {copied === selectedProject.share_token ? '✅ Copié !' : '🔗 Copier le lien client'}
+              </button>
+            </div>
+
+            {/* Mode toggle */}
+            <div className="px-4 py-3 border-b border-slate-100">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Mode</label>
+              <div className="flex mt-1.5 bg-slate-100 rounded-lg p-0.5">
+                <button onClick={() => setMode('client')} className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${mode === 'client' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>
+                  👤 Client
+                </button>
+                <button onClick={() => setMode('consultant')} className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${mode === 'consultant' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>
+                  🔧 Consultant
+                </button>
+              </div>
+            </div>
+
+            {/* Phases */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">Phases</label>
+              {PHASES.map(phase => (
+                <button
+                  key={phase.id}
+                  onClick={() => goToPhase(phase.id)}
+                  className={`w-full text-left px-3 py-2 rounded-lg transition-all flex items-center gap-2 ${
+                    selectedProject.current_phase === phase.id
+                      ? 'bg-amber-50 border border-amber-300'
+                      : (selectedProject.phases_completed || []).includes(phase.id)
+                      ? 'bg-emerald-50/60 border border-emerald-200 hover:bg-emerald-50'
+                      : 'bg-white/60 border border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="text-base">{(selectedProject.phases_completed || []).includes(phase.id) ? '✅' : phase.icon}</span>
+                  <div className="min-w-0">
+                    <div className={`text-xs font-semibold truncate ${
+                      selectedProject.current_phase === phase.id ? 'text-amber-800' : (selectedProject.phases_completed || []).includes(phase.id) ? 'text-emerald-700' : 'text-slate-700'
+                    }`}>{phase.name}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {/* Export */}
+            <div className="p-3 border-t border-slate-100">
+              <button
+                onClick={handleExport}
+                disabled={exporting || messages.length < 2}
+                className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all ${
+                  exporting ? 'bg-amber-100 text-amber-600'
+                  : messages.length < 2 ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 shadow-md'
+                }`}
+              >
+                {exporting ? '⏳ Génération...' : '📄 Exporter (.doc)'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Main chat */}
+        <div className="flex-1 flex flex-col min-w-0">
+          <div className="h-14 bg-white border-b border-slate-200 flex items-center px-4 gap-3 flex-shrink-0">
+            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-slate-200 text-sm">
+              {sidebarOpen ? '◀' : '▶'}
+            </button>
+            <div className="flex-1">
+              <span className="text-sm font-semibold text-slate-800">{selectedProject.client_name}</span>
+              <span className="text-xs text-slate-400 ml-2">Phase {selectedProject.current_phase || 1} — {currentPhase?.name}</span>
+            </div>
+            <div className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${mode === 'consultant' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+              {mode === 'consultant' ? '🔧 Consultant' : '👤 Client'}
+            </div>
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border-b border-red-200 text-red-700 text-xs px-4 py-2">
+              {error} <button onClick={() => setError(null)} className="font-bold ml-3">✕</button>
+            </div>
+          )}
+
+          <div className="flex-1 overflow-y-auto px-6 py-6" ref={el => el && (el.scrollTop = el.scrollHeight)}>
+            {messages.map((m, i) => (
+              <div key={i} className={`flex gap-3 ${m.role === 'user' ? 'flex-row-reverse' : ''} mb-5 animate-fade-in`}>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-sm shadow-sm ${
+                  m.role === 'user'
+                    ? m.mode === 'consultant' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-white'
+                    : 'bg-gradient-to-br from-amber-400 to-orange-500 text-white'
+                }`}>
+                  {m.role === 'user' ? (m.mode === 'consultant' ? '🔧' : '👤') : '🤖'}
+                </div>
+                <div className={`max-w-[80%] rounded-2xl px-4 py-3 shadow-sm ${
+                  m.role === 'user'
+                    ? m.mode === 'consultant' ? 'bg-blue-600 text-white rounded-tr-md' : 'bg-slate-700 text-white rounded-tr-md'
+                    : 'bg-white border border-slate-200 text-slate-800 rounded-tl-md'
+                }`}>
+                  <div className="text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMd(m.content) }} />
+                  <div className={`text-[10px] mt-1.5 ${m.role === 'user' ? 'text-white/50' : 'text-slate-400'}`}>
+                    {m.created_at && new Date(m.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                    {m.mode === 'consultant' && m.role === 'user' ? ' · Consultant' : ''}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {chatLoading && (
+              <div className="flex gap-3 mb-5 animate-fade-in">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white text-sm">🤖</div>
+                <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-md px-5 py-3.5 shadow-sm">
+                  <div className="flex gap-1.5">
+                    <span className="typing-dot w-2 h-2 rounded-full bg-amber-500 inline-block" />
+                    <span className="typing-dot w-2 h-2 rounded-full bg-amber-500 inline-block" />
+                    <span className="typing-dot w-2 h-2 rounded-full bg-amber-500 inline-block" />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-slate-200 bg-white p-4">
+            <div className="flex gap-3 items-end max-w-4xl mx-auto">
+              <textarea
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                placeholder={mode === 'consultant' ? 'Question ou analyse...' : 'Répondez à BriefBot...'}
+                rows={1}
+                className="flex-1 px-4 py-3 border border-slate-300 rounded-xl text-sm resize-none bg-slate-50 focus:bg-white transition-colors"
+                style={{ minHeight: '44px', maxHeight: '120px' }}
+                onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
+              />
+              <button
+                onClick={sendMessage}
+                disabled={!chatInput.trim() || chatLoading}
+                className={`px-5 py-3 rounded-xl text-sm font-bold transition-all ${
+                  chatInput.trim() && !chatLoading ? 'bg-slate-800 text-white hover:bg-slate-700 shadow-md' : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                }`}
+              >
+                Envoyer
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── PROJECT LIST ───
+  return (
+    <div className="h-screen bg-gradient-to-br from-slate-50 via-white to-orange-50/40 overflow-auto">
+      <div className="max-w-3xl mx-auto px-6 py-12">
+        <div className="text-center mb-10">
+          <div className="inline-flex items-center gap-2 bg-white border border-slate-200 rounded-full px-4 py-1.5 text-xs font-semibold text-slate-500 mb-4 shadow-sm">
+            🤖 BRIEFBOT — Dashboard
+          </div>
+          <h1 className="text-3xl font-bold text-slate-800 mb-2">Mes projets</h1>
+          <p className="text-slate-500 text-sm">Briefings stratégiques en cours</p>
+        </div>
+
+        <div className="flex gap-3 mb-8 justify-center">
+          <button onClick={() => setView('new')} className="bg-slate-800 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-slate-700 transition-all shadow-md">
+            + Nouveau projet
+          </button>
+          <button onClick={() => loadProjects()} className="bg-white text-slate-700 border border-slate-300 px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50">
+            🔄 Actualiser
+          </button>
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl mb-6">
+            {error} <button onClick={() => setError(null)} className="font-bold ml-3">✕</button>
+          </div>
+        )}
+
+        {loading ? (
+          <div className="text-center py-16 text-slate-400">Chargement...</div>
+        ) : projects.length === 0 ? (
+          <div className="text-center py-16 text-slate-400">
+            <div className="text-5xl mb-4">📋</div>
+            <p className="font-medium">Aucun projet</p>
+            <p className="text-sm mt-1">Créez votre premier briefing</p>
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {projects.map(p => (
+              <div
+                key={p.id}
+                className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4 hover:shadow-md transition-all group cursor-pointer"
+                onClick={() => openProject(p)}
+              >
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-lg shadow-sm">
+                  {p.client_name?.[0]?.toUpperCase() || '?'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-slate-800 truncate">{p.name}</div>
+                  <div className="text-xs text-slate-400">
+                    {p.client_name} · Phase {p.current_phase || 1}/10 · {(p.phases_completed || []).length} complétées
+                  </div>
+                </div>
+                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                  <button
+                    onClick={() => copyShareLink(p.share_token)}
+                    className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1.5 rounded-lg hover:bg-amber-100"
+                  >
+                    {copied === p.share_token ? '✅' : '🔗'} Lien client
+                  </button>
+                  <button
+                    onClick={() => deleteProject(p.id)}
+                    className="text-xs bg-red-50 text-red-500 px-2.5 py-1.5 rounded-lg hover:bg-red-100"
+                  >
+                    🗑
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
