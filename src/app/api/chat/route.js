@@ -17,7 +17,6 @@ export async function POST(request) {
 
     const sb = getServiceSupabase();
 
-    // Récupérer le projet
     const { data: project, error: projErr } = await sb
       .from('projects')
       .select('*')
@@ -28,7 +27,15 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Projet non trouvé' }, { status: 404 });
     }
 
-    // Sauvegarder le message de l'utilisateur
+    if (project.tokens_used >= project.tokens_limit) {
+      return NextResponse.json({
+        error: 'Limite de tokens atteinte pour ce projet.',
+        limit_reached: true,
+        tokens_used: project.tokens_used,
+        tokens_limit: project.tokens_limit,
+      }, { status: 429 });
+    }
+
     await sb.from('messages').insert({
       project_id: projectId,
       role: 'user',
@@ -36,20 +43,17 @@ export async function POST(request) {
       mode: mode || 'client',
     });
 
-    // Récupérer l'historique des messages
     const { data: history } = await sb
       .from('messages')
       .select('role, content')
       .eq('project_id', projectId)
       .order('created_at', { ascending: true });
 
-    // Construire les messages pour l'API
     const apiMessages = (history || []).map(m => ({
       role: m.role,
       content: m.content,
     }));
 
-    // Appeler Claude
     const systemPrompt = buildSystemPrompt(project, mode || 'client');
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -63,7 +67,16 @@ export async function POST(request) {
       .map(b => b.text)
       .join('\n');
 
-    // Sauvegarder la réponse de l'IA
+    const inputTokens = response.usage?.input_tokens || 0;
+    const outputTokens = response.usage?.output_tokens || 0;
+    const totalTokens = inputTokens + outputTokens;
+
+    const newTokensUsed = (project.tokens_used || 0) + totalTokens;
+    await sb
+      .from('projects')
+      .update({ tokens_used: newTokensUsed })
+      .eq('id', projectId);
+
     await sb.from('messages').insert({
       project_id: projectId,
       role: 'assistant',
@@ -71,7 +84,6 @@ export async function POST(request) {
       mode: mode || 'client',
     });
 
-    // Détecter la complétion d'une phase
     const phaseMatch = aiText.match(/✅\s*Phase\s*(\d+)/);
     if (phaseMatch) {
       const completedId = parseInt(phaseMatch[1]);
@@ -87,7 +99,12 @@ export async function POST(request) {
       }
     }
 
-    return NextResponse.json({ content: aiText });
+    return NextResponse.json({
+      content: aiText,
+      tokens_used: newTokensUsed,
+      tokens_limit: project.tokens_limit,
+      tokens_this_message: totalTokens,
+    });
   } catch (err) {
     console.error('Chat API error:', err);
     return NextResponse.json(
