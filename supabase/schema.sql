@@ -13,6 +13,8 @@ CREATE TABLE projects (
   current_phase INTEGER DEFAULT 1,
   phases_completed INTEGER[] DEFAULT '{}',
   share_token TEXT UNIQUE DEFAULT encode(gen_random_bytes(12), 'hex'),
+  tokens_used INTEGER DEFAULT 0,
+  tokens_limit INTEGER DEFAULT 50000,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -82,3 +84,16 @@ CREATE POLICY "Suppression projets" ON projects
 
 CREATE POLICY "Suppression messages" ON messages
   FOR DELETE USING (true);
+
+-- ══════════════════════════════════════════════════
+-- Fonction RPC : incrément atomique des tokens
+-- Évite les race conditions lors de mises à jour concurrentes
+-- ══════════════════════════════════════════════════
+
+CREATE OR REPLACE FUNCTION increment_project_tokens(project_id UUID, amount INTEGER)
+RETURNS INTEGER AS $$
+  UPDATE projects
+  SET tokens_used = COALESCE(tokens_used, 0) + amount
+  WHERE id = project_id
+  RETURNING tokens_used;
+$$ LANGUAGE sql SECURITY DEFINER;

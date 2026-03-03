@@ -71,11 +71,10 @@ export async function POST(request) {
     const outputTokens = response.usage?.output_tokens || 0;
     const totalTokens = inputTokens + outputTokens;
 
-    const newTokensUsed = (project.tokens_used || 0) + totalTokens;
-    await sb
-      .from('projects')
-      .update({ tokens_used: newTokensUsed })
-      .eq('id', projectId);
+    const { data: newTokensUsed } = await sb.rpc('increment_project_tokens', {
+      project_id: projectId,
+      amount: totalTokens,
+    });
 
     await sb.from('messages').insert({
       project_id: projectId,
