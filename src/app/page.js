@@ -313,31 +313,41 @@ export default function Dashboard() {
         const data = await res.json();
         if (data.error) throw new Error(data.error);
         const html2pdf = (await import('html2pdf.js')).default;
+
+        // Overlay blanc pour masquer le flash de contenu à l'utilisateur
+        const overlay = document.createElement('div');
+        Object.assign(overlay.style, {
+          position: 'fixed', top: '0', left: '0',
+          width: '100vw', height: '100vh',
+          background: 'white', zIndex: '999999',
+        });
+        document.body.appendChild(overlay);
+
+        // Container VISIBLE (opacity 1) pour que html2canvas puisse capturer
         const container = document.createElement('div');
         container.innerHTML = data.html;
-        // Visible pour html2canvas mais hors de la vue utilisateur
         Object.assign(container.style, {
           position: 'fixed',
           top: '0',
           left: '0',
-          width: '210mm',
-          zIndex: '-9999',
-          opacity: '0',
-          pointerEvents: 'none',
+          width: '794px',
           background: 'white',
-          padding: '20px',
+          padding: '40px',
+          zIndex: '999998',
         });
         document.body.appendChild(container);
-        // Attendre le rendu du navigateur
-        await new Promise(r => setTimeout(r, 300));
+
+        await new Promise(r => setTimeout(r, 500));
         await html2pdf().set({
           margin: [10, 10, 10, 10],
           filename: `${data.filename}.pdf`,
           image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: { scale: 2, useCORS: true, letterRendering: true, width: container.scrollWidth, height: container.scrollHeight },
+          html2canvas: { scale: 2, useCORS: true, letterRendering: true },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
         }).from(container).save();
+
         document.body.removeChild(container);
+        document.body.removeChild(overlay);
       } else {
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
