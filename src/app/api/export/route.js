@@ -9,10 +9,14 @@ const anthropic = new Anthropic({
 
 export async function POST(request) {
   try {
-    const { projectId } = await request.json();
+    const { projectId, password } = await request.json();
 
     if (!projectId) {
       return NextResponse.json({ error: 'projectId requis' }, { status: 400 });
+    }
+
+    if (password !== process.env.CONSULTANT_PASSWORD) {
+      return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
     }
 
     const sb = getServiceSupabase();

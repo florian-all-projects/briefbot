@@ -305,7 +305,7 @@ export default function Dashboard() {
       const res = await fetch('/api/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: selectedProject.id }),
+        body: JSON.stringify({ projectId: selectedProject.id, password: storedPw }),
       });
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
