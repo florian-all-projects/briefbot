@@ -85,7 +85,6 @@ export default function Chat({ project: initialProject, initialMessages, mode: d
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [mode, setMode] = useState(defaultMode || 'client');
-  const [exporting, setExporting] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const chatEndRef = useRef(null);
@@ -203,35 +202,6 @@ export default function Chat({ project: initialProject, initialMessages, mode: d
     setLoading(false);
   };
 
-  const handleExport = async () => {
-    if (exporting || messages.length < 2) return;
-    setExporting(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/export', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: project.id }),
-      });
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || 'Export échoué');
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Brief_${project.client_name.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.doc`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      setError('Erreur export : ' + e.message);
-    }
-    setExporting(false);
-  };
-
   const currentPhase = PHASES.find(p => p.id === (project.current_phase || 1));
 
   return (
@@ -289,22 +259,6 @@ export default function Chat({ project: initialProject, initialMessages, mode: d
             ))}
           </div>
 
-          {/* Export */}
-          <div className="p-3 border-t border-slate-100">
-            <button
-              onClick={handleExport}
-              disabled={exporting || messages.length < 2}
-              className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all ${
-                exporting
-                  ? 'bg-amber-100 text-amber-600'
-                  : messages.length < 2
-                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 shadow-md'
-              }`}
-            >
-              {exporting ? '⏳ Génération...' : '📄 Exporter le brief (.doc)'}
-            </button>
-          </div>
         </div>
       )}
 

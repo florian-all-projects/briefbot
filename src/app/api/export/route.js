@@ -9,10 +9,14 @@ const anthropic = new Anthropic({
 
 export async function POST(request) {
   try {
-    const { projectId } = await request.json();
+    const { projectId, password } = await request.json();
 
     if (!projectId) {
       return NextResponse.json({ error: 'projectId requis' }, { status: 400 });
+    }
+
+    if (password !== process.env.CONSULTANT_PASSWORD) {
+      return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
     }
 
     const sb = getServiceSupabase();
@@ -26,6 +30,15 @@ export async function POST(request) {
 
     if (!project) {
       return NextResponse.json({ error: 'Projet non trouvé' }, { status: 404 });
+    }
+
+    if (project.tokens_used >= project.tokens_limit) {
+      return NextResponse.json({
+        error: 'Limite de tokens atteinte pour ce projet.',
+        limit_reached: true,
+        tokens_used: project.tokens_used,
+        tokens_limit: project.tokens_limit,
+      }, { status: 429 });
     }
 
     // Récupérer tous les messages
@@ -51,6 +64,12 @@ export async function POST(request) {
       .filter(b => b.type === 'text')
       .map(b => b.text)
       .join('\n');
+
+    const exportTokens = (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0);
+    await sb.rpc('increment_project_tokens', {
+      project_id: projectId,
+      amount: exportTokens,
+    });
 
     // Construire le .doc complet
     const fullDoc = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
