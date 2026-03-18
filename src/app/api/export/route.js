@@ -7,6 +7,23 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
+// Retry avec backoff pour les erreurs 429
+async function callWithRetry(params, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await anthropic.messages.create(params);
+    } catch (err) {
+      if (err.status === 429 && i < maxRetries - 1) {
+        const wait = Math.pow(2, i) * 2000 + Math.random() * 500;
+        console.log(`[Export Rate Limit] Retry ${i + 1}/${maxRetries} dans ${Math.round(wait)}ms`);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 export async function POST(request) {
   try {
     const { projectId, password, format = 'doc' } = await request.json();
@@ -21,7 +38,6 @@ export async function POST(request) {
 
     const sb = getServiceSupabase();
 
-    // Récupérer le projet
     const { data: project } = await sb
       .from('projects')
       .select('*')
@@ -54,33 +70,56 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Pas assez de messages pour générer un export' }, { status: 400 });
     }
 
-    // Générer le document
+    // Générer le document — en 2 passes si nécessaire pour être exhaustif
     const exportPrompt = buildExportPrompt(project, messages);
-    const response = await anthropic.messages.create({
+
+    // Première passe : générer le document complet
+    const response1 = await callWithRetry({
       model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
+      max_tokens: 8000,
       messages: [{ role: 'user', content: exportPrompt }],
     });
 
-    const htmlContent = response.content
+    let htmlContent = response1.content
       .filter(b => b.type === 'text')
       .map(b => b.text)
       .join('\n');
 
-    const inputTokens = response.usage?.input_tokens || 0;
-    const outputTokens = response.usage?.output_tokens || 0;
-    const exportTokens = inputTokens + outputTokens;
+    let totalInput = response1.usage?.input_tokens || 0;
+    let totalOutput = response1.usage?.output_tokens || 0;
 
-    // Coût réel en micro-dollars : $3/M input (3µ$/token) + $15/M output (15µ$/token)
-    const costMicro = inputTokens * 3 + outputTokens * 15;
+    // Si la réponse a été coupée (stop_reason !== 'end_turn'), demander la suite
+    if (response1.stop_reason === 'max_tokens') {
+      console.log('[Export] Réponse tronquée, demande de continuation...');
+      const response2 = await callWithRetry({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 8000,
+        messages: [
+          { role: 'user', content: exportPrompt },
+          { role: 'assistant', content: htmlContent },
+          { role: 'user', content: 'Continue exactement où tu t\'es arrêté. Génère la suite du document HTML sans répéter ce qui a déjà été écrit. Termine toutes les sections manquantes.' },
+        ],
+      });
+
+      const htmlContinuation = response2.content
+        .filter(b => b.type === 'text')
+        .map(b => b.text)
+        .join('\n');
+
+      htmlContent += htmlContinuation;
+      totalInput += response2.usage?.input_tokens || 0;
+      totalOutput += response2.usage?.output_tokens || 0;
+    }
+
+    // Calculer et enregistrer le coût
+    const costMicro = totalInput * 3 + totalOutput * 15;
     await sb.rpc('increment_project_cost', {
       project_id: projectId,
       amount: costMicro,
     });
-    // Aussi incrémenter tokens pour référence
     await sb.rpc('increment_project_tokens', {
       project_id: projectId,
-      amount: exportTokens,
+      amount: totalInput + totalOutput,
     });
 
     const styles = `
@@ -100,7 +139,6 @@ export async function POST(request) {
 
     const filename = `Brief_${project.client_name.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}`;
 
-    // Format PDF : retourner un document HTML complet pour impression via iframe
     if (format === 'pdf') {
       const pdfHtml = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>${filename}</title>
@@ -111,7 +149,6 @@ export async function POST(request) {
       return NextResponse.json({ html: pdfHtml, filename });
     }
 
-    // Format DOC : retourner le fichier .doc avec BOM UTF-8 pour les accents
     const fullDoc = `\ufeff<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
 <head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"><style>${styles}</style></head><body>${htmlContent}</body></html>`;
 
@@ -123,6 +160,14 @@ export async function POST(request) {
     });
   } catch (err) {
     console.error('Export API error:', err);
+
+    if (err.status === 429) {
+      return NextResponse.json(
+        { error: 'L\'API Claude est temporairement surchargée. Réessayez dans quelques secondes.' },
+        { status: 429 }
+      );
+    }
+
     return NextResponse.json(
       { error: 'Erreur export : ' + (err.message || 'Inconnue') },
       { status: 500 }
