@@ -225,7 +225,10 @@ export async function POST(request) {
 
       const inputTokens = response.usage?.input_tokens || 0;
       const outputTokens = response.usage?.output_tokens || 0;
-      const costMicro = inputTokens * 3 + outputTokens * 15;
+      const cacheWrite = response.usage?.cache_creation_input_tokens || 0;
+      const cacheRead = response.usage?.cache_read_input_tokens || 0;
+      const regularInput = Math.max(0, inputTokens - cacheWrite - cacheRead);
+      const costMicro = Math.round(regularInput * 3 + cacheWrite * 3.75 + cacheRead * 0.30 + outputTokens * 15);
 
       await sb.rpc('increment_project_cost', { project_id: projectId, amount: costMicro });
       await sb.rpc('increment_project_tokens', { project_id: projectId, amount: inputTokens + outputTokens });

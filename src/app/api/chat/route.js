@@ -10,8 +10,28 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-const INPUT_COST_MICRO = 3;
-const OUTPUT_COST_MICRO = 15;
+// Pricing Claude Sonnet en micro-dollars par token
+// Voir https://docs.anthropic.com/en/docs/about-claude/models#model-pricing
+const COST_INPUT_MICRO = 3;          // $3/M — input normal (pas en cache)
+const COST_CACHE_WRITE_MICRO = 3.75; // $3.75/M — écriture cache
+const COST_CACHE_READ_MICRO = 0.30;  // $0.30/M — lecture cache
+const COST_OUTPUT_MICRO = 15;        // $15/M — output
+
+function calculateCostMicro(usage) {
+  const inputTokens = usage?.input_tokens || 0;
+  const outputTokens = usage?.output_tokens || 0;
+  const cacheWriteTokens = usage?.cache_creation_input_tokens || 0;
+  const cacheReadTokens = usage?.cache_read_input_tokens || 0;
+  // Les tokens d'input "normaux" = total input - cache write - cache read
+  const regularInputTokens = Math.max(0, inputTokens - cacheWriteTokens - cacheReadTokens);
+
+  return Math.round(
+    regularInputTokens * COST_INPUT_MICRO +
+    cacheWriteTokens * COST_CACHE_WRITE_MICRO +
+    cacheReadTokens * COST_CACHE_READ_MICRO +
+    outputTokens * COST_OUTPUT_MICRO
+  );
+}
 
 // Nombre max de messages récents à envoyer (phase en cours uniquement)
 const MAX_RECENT_MESSAGES = 16;
@@ -110,7 +130,7 @@ ${recentConv.substring(0, 8000)}`
     // Coût du résumé
     const inputTokens = response.usage?.input_tokens || 0;
     const outputTokens = response.usage?.output_tokens || 0;
-    const costMicro = inputTokens * INPUT_COST_MICRO + outputTokens * OUTPUT_COST_MICRO;
+    const costMicro = calculateCostMicro(response.usage);
 
     await sb.rpc('increment_project_cost', { project_id: projectId, amount: costMicro });
     await sb.rpc('increment_project_tokens', { project_id: projectId, amount: inputTokens + outputTokens });
@@ -197,6 +217,7 @@ export async function POST(request) {
     const systemPrompt = buildSystemPrompt(project, mode || 'client');
 
     // ── Boucle tool use ──
+    let totalCostMicro = 0;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
     let loopMessages = [...apiMessages];
@@ -216,6 +237,7 @@ export async function POST(request) {
       tools: TOOLS,
     });
 
+    totalCostMicro += calculateCostMicro(response.usage);
     totalInputTokens += response.usage?.input_tokens || 0;
     totalOutputTokens += response.usage?.output_tokens || 0;
 
@@ -252,6 +274,7 @@ export async function POST(request) {
         tools: TOOLS,
       });
 
+      totalCostMicro += calculateCostMicro(response.usage);
       totalInputTokens += response.usage?.input_tokens || 0;
       totalOutputTokens += response.usage?.output_tokens || 0;
     }
@@ -262,13 +285,11 @@ export async function POST(request) {
       .map(b => b.text)
       .join('\n');
 
-    // Calculer le coût réel
-    const costMicro = totalInputTokens * INPUT_COST_MICRO + totalOutputTokens * OUTPUT_COST_MICRO;
     const totalTokens = totalInputTokens + totalOutputTokens;
 
     const { data: newCostMicro, error: costRpcErr } = await sb.rpc('increment_project_cost', {
       project_id: projectId,
-      amount: costMicro,
+      amount: totalCostMicro,
     });
 
     await sb.rpc('increment_project_tokens', {
@@ -276,7 +297,7 @@ export async function POST(request) {
       amount: totalTokens,
     });
 
-    const actualCostMicro = costRpcErr ? currentCost + costMicro : newCostMicro;
+    const actualCostMicro = costRpcErr ? currentCost + totalCostMicro : newCostMicro;
 
     // Sauvegarder la réponse
     await sb.from('messages').insert({
@@ -342,7 +363,7 @@ export async function POST(request) {
       content: aiText,
       cost_usd: actualCostMicro / 1000000,
       budget_usd: budget / 1000000,
-      cost_this_message_usd: costMicro / 1000000,
+      cost_this_message_usd: totalCostMicro / 1000000,
       tokens_used: totalTokens,
       tokens_this_message: totalTokens,
       tokens_input: totalInputTokens,
