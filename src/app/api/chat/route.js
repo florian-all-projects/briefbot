@@ -13,6 +13,48 @@ const anthropic = new Anthropic({
 const INPUT_COST_MICRO = 3;
 const OUTPUT_COST_MICRO = 15;
 
+// Nombre max de messages d'historique envoyés à l'API
+// Au-delà, on garde un résumé des premiers + les N derniers
+const MAX_HISTORY_MESSAGES = 30;
+
+// ── Retry avec exponential backoff ──
+async function callAnthropicWithRetry(params, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await anthropic.messages.create(params);
+    } catch (err) {
+      if (err.status === 429 && i < maxRetries - 1) {
+        const wait = Math.pow(2, i) * 1500 + Math.random() * 500; // 1.5s, 3s, 6s
+        console.log(`[Rate Limit] Retry ${i + 1}/${maxRetries} dans ${Math.round(wait)}ms`);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+// ── Tronquer l'historique pour rester sous la limite ──
+function trimHistory(messages) {
+  if (messages.length <= MAX_HISTORY_MESSAGES) return messages;
+
+  // Garder les 4 premiers messages (contexte initial + profiling Phase 0)
+  // + les N derniers messages (conversation récente)
+  const keepStart = 4;
+  const keepEnd = MAX_HISTORY_MESSAGES - keepStart - 1; // -1 pour le message résumé
+  const start = messages.slice(0, keepStart);
+  const end = messages.slice(-keepEnd);
+
+  // Insérer un message résumé entre les deux
+  const skipped = messages.length - keepStart - keepEnd;
+  const summary = {
+    role: 'user',
+    content: `[Note système : ${skipped} messages intermédiaires ont été omis pour optimiser la conversation. Les informations clés ont été collectées dans les phases précédentes. Continue avec le contexte disponible.]`,
+  };
+
+  return [...start, summary, ...end];
+}
+
 export async function POST(request) {
   try {
     const { projectId, message, mode } = await request.json();
@@ -33,9 +75,9 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Projet non trouvé' }, { status: 404 });
     }
 
-    // Vérifier le budget (nouveau système en micro-dollars)
+    // Vérifier le budget (système en micro-dollars)
     const currentCost = project.cost_micro_usd || 0;
-    const budget = project.budget_micro_usd || 5000000; // $5 par défaut
+    const budget = project.budget_micro_usd || 5000000;
     if (currentCost >= budget) {
       return NextResponse.json({
         error: 'Budget atteint pour ce projet.',
@@ -60,11 +102,15 @@ export async function POST(request) {
       .eq('project_id', projectId)
       .order('created_at', { ascending: true });
 
-    const apiMessages = (history || []).map(m => ({
+    const allMessages = (history || []).map(m => ({
       role: m.role,
       content: m.content,
     }));
 
+    // Tronquer l'historique si trop long
+    const apiMessages = trimHistory(allMessages);
+
+    // System prompt avec cache_control pour le prompt caching
     const systemPrompt = buildSystemPrompt(project, mode || 'client');
 
     // ── Boucle tool use ──
@@ -73,10 +119,16 @@ export async function POST(request) {
     let loopMessages = [...apiMessages];
     let maxIterations = 5;
 
-    let response = await anthropic.messages.create({
+    let response = await callAnthropicWithRetry({
       model: 'claude-sonnet-4-6',
       max_tokens: 1500,
-      system: systemPrompt,
+      system: [
+        {
+          type: 'text',
+          text: systemPrompt,
+          cache_control: { type: 'ephemeral' },
+        }
+      ],
       messages: loopMessages,
       tools: TOOLS,
     });
@@ -103,10 +155,16 @@ export async function POST(request) {
       loopMessages.push({ role: 'assistant', content: response.content });
       loopMessages.push({ role: 'user', content: toolResults });
 
-      response = await anthropic.messages.create({
+      response = await callAnthropicWithRetry({
         model: 'claude-sonnet-4-6',
         max_tokens: 1500,
-        system: systemPrompt,
+        system: [
+          {
+            type: 'text',
+            text: systemPrompt,
+            cache_control: { type: 'ephemeral' },
+          }
+        ],
         messages: loopMessages,
         tools: TOOLS,
       });
@@ -131,7 +189,7 @@ export async function POST(request) {
       amount: costMicro,
     });
 
-    // Incrémenter aussi les tokens (pour info/référence)
+    // Incrémenter aussi les tokens (pour référence)
     await sb.rpc('increment_project_tokens', {
       project_id: projectId,
       amount: totalTokens,
@@ -165,11 +223,9 @@ export async function POST(request) {
 
     return NextResponse.json({
       content: aiText,
-      // Nouveau système de coût
       cost_usd: actualCostMicro / 1000000,
       budget_usd: budget / 1000000,
       cost_this_message_usd: costMicro / 1000000,
-      // Ancien système (rétrocompatibilité)
       tokens_used: totalTokens,
       tokens_this_message: totalTokens,
       tokens_input: totalInputTokens,
@@ -178,6 +234,15 @@ export async function POST(request) {
     });
   } catch (err) {
     console.error('Chat API error:', err);
+
+    // Message d'erreur plus clair pour le rate limit
+    if (err.status === 429) {
+      return NextResponse.json(
+        { error: 'L\'API Claude est temporairement surchargée. Réessayez dans quelques secondes.' },
+        { status: 429 }
+      );
+    }
+
     return NextResponse.json(
       { error: 'Erreur serveur : ' + (err.message || 'Inconnue') },
       { status: 500 }
