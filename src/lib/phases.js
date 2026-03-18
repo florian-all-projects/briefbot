@@ -158,41 +158,88 @@ export function buildExportPrompt(project, messages) {
     .map(m => `${m.role === "user" ? (m.mode === "consultant" ? "CONSULTANT" : "CLIENT") : "BRIEFBOT"}: ${m.content}`)
     .join("\n\n");
 
-  return `Tu es un expert en rédaction de briefs stratégiques pour la refonte de sites web. À partir de la conversation ci-dessous, génère un DOCUMENT DE BRIEFING STRATÉGIQUE complet et structuré en HTML.
+  return `Tu es un expert senior en rédaction de briefs stratégiques pour la refonte de sites web, la stratégie SEO et le webmarketing.
+
+Ta mission : extraire ABSOLUMENT TOUTES les informations de la conversation ci-dessous et les structurer dans un document de briefing stratégique EXHAUSTIF en HTML.
+
+## RÈGLE N°1 — EXHAUSTIVITÉ TOTALE
+- Tu dois reprendre CHAQUE information, CHAQUE détail, CHAQUE chiffre, CHAQUE nom mentionné dans la conversation.
+- Si le client a donné un exemple, une anecdote, un chiffre, un nom de concurrent, un mot-clé, une URL, un budget, une date → ça DOIT apparaître dans le document.
+- Cite les réponses du client entre guillemets quand elles sont particulièrement pertinentes ou révélatrices.
+- Ne résume PAS de manière vague. Préfère "Le client a un CA de 450k€ dont 60% en B2B sur la région Rhône-Alpes" plutôt que "Le client a un bon CA".
+- Si une information a été donnée mais est incomplète, mentionne-la quand même avec une note "⚠️ À approfondir".
 
 ## Structure obligatoire du document :
-1. Page de garde (nom du projet, client, date, URL)
-2. Résumé exécutif (1 paragraphe synthétique)
-3. Profil de l'interlocuteur (métier, niveau digital, à prendre en compte dans les recommandations)
-4. Identité & Vision (histoire, mission, valeurs, vision)
-5. Offre & Services (avec tableau descriptif si pertinent)
-6. Cibles & Personas (fiches personas détaillées avec insight clé et message à activer)
-7. Concurrence & Mots-clés (concurrents identifiés, analyse SERP, mots-clés stratégiques, intentions de recherche)
-8. Analyse SWOT (sous forme de tableau 2x2)
-9. Tonalité & Univers de marque (personnalité, style, palette, inspirations)
-10. Parcours utilisateur & UX (par persona, avec actions prioritaires)
-11. Objectifs business & SEO (KPIs, mots-clés, canaux)
-12. Contenus & Storytelling (histoires, édito, contenus à produire)
-13. Éléments existants & Contraintes (technique, outils, budget)
-14. Données SEO complémentaires (données Haloscan et SERP récoltées pendant le briefing, si disponibles)
-15. Recommandations stratégiques (tes recommandations basées sur toute l'analyse)
-16. Prochaines étapes (roadmap suggérée)
 
-## Règles :
+### 1. Page de garde
+Nom du projet, client, date de génération, URL du site, nom du consultant.
+
+### 2. Résumé exécutif
+Un paragraphe dense qui synthétise le projet, les enjeux principaux et les recommandations clés. Ce résumé doit permettre à quelqu'un qui n'a pas le temps de lire tout le document de comprendre l'essentiel.
+
+### 3. Profil de l'interlocuteur
+Qui est la personne qui a répondu au briefing ? Son métier, son rôle, son niveau de connaissance digitale/SEO/UX. Ceci est important pour calibrer les recommandations et les livrables.
+
+### 4. Identité & Vision
+Histoire de l'entreprise, date de création, fondateurs, mission, valeurs, vision à moyen terme, proposition de valeur unique. Reprends TOUS les détails donnés.
+
+### 5. Offre & Services
+Liste EXHAUSTIVE de tous les services/produits mentionnés. Pour chacun : description, tarif si mentionné, niveau de demande, rentabilité, saisonnalité. Utilise un tableau si pertinent.
+
+### 6. Cibles & Personas
+Pour CHAQUE segment ou persona identifié : profil détaillé (âge, CSP, motivations, freins, parcours d'achat), part de CA estimée, messages clés à adresser. Crée des fiches personas structurées.
+
+### 7. Concurrence & Mots-clés
+- Liste TOUS les concurrents mentionnés (noms, URLs, ce qu'ils font bien/mal)
+- TOUS les mots-clés et expressions mentionnés par le client
+- Les résultats d'analyse SERP et Haloscan si mentionnés dans la conversation
+- La zone géographique ciblée
+- Les intentions de recherche identifiées
+- Comment les clients trouvent actuellement l'entreprise
+
+### 8. Analyse SWOT
+Tableau 2×2 complet. Reprends CHAQUE point fort, faible, opportunité et menace identifié dans la conversation, même ceux suggérés par BriefBot et validés par le client.
+
+### 9. Tonalité & Univers de marque
+Personnalité de marque, registre de langue, adjectifs, couleurs souhaitées, ambiances, marques d'inspiration, éléments visuels existants (logo, charte). Reprends les formulations exactes du client.
+
+### 10. Parcours utilisateur & UX
+Pour chaque persona : parcours idéal sur le site, actions prioritaires, fonctionnalités indispensables, irritants actuels. Si une analyse du site actuel a été faite (via fetch_url), inclure les observations.
+
+### 11. Objectifs business & SEO
+Objectifs chiffrés (6 mois, 1 an), KPIs, budget marketing, canaux d'acquisition actuels et souhaités, mots-clés stratégiques, objectifs SEO spécifiques. CHAQUE chiffre mentionné doit apparaître.
+
+### 12. Contenus & Storytelling
+Histoires marquantes, témoignages, cas d'usage, contenu existant réutilisable, stratégie éditoriale, idées de contenus évoquées.
+
+### 13. Éléments existants & Contraintes
+Ce qui marche / ne marche pas sur le site actuel, contraintes techniques, CMS, hébergement, intégrations, outils tiers, budget de la refonte, délais.
+
+### 14. Données SEO complémentaires
+Si des analyses d'outils (Haloscan, SERP, fetch_url) ont été effectuées pendant le briefing, restituer ici TOUTES les données collectées de manière structurée.
+
+### 15. Recommandations stratégiques
+Tes recommandations concrètes et actionnables basées sur TOUTE l'analyse. Classées par priorité. Chaque recommandation doit être justifiée par un élément du briefing.
+
+### 16. Prochaines étapes
+Roadmap suggérée avec étapes concrètes, livrables attendus et timeline indicative.
+
+## Format :
 - Génère UNIQUEMENT le contenu HTML (pas de balises html/head/body)
-- Utilise des <h1>, <h2>, <h3>, <p>, <table>, <ul>, <blockquote>
+- Utilise des <h1>, <h2>, <h3>, <p>, <table>, <ul>, <ol>, <blockquote>, <strong>, <em>
 - Style professionnel, clair et structuré
-- Si une section n'a pas été abordée, indique "⚠️ À compléter" avec des questions suggérées
+- Si une section n'a pas été abordée dans la conversation, indique "⚠️ Section non abordée — À compléter lors d'un prochain échange" avec 2-3 questions suggérées
 - Français uniquement
-- Sois EXHAUSTIF : reprends TOUTES les informations données
-- Ajoute des recommandations concrètes basées sur ton expertise SEO/UX
-- Inclus les données des analyses d'outils (SERP, Haloscan, analyse de sites) si mentionnées dans la conversation
+- Le document doit être LONG et DÉTAILLÉ — c'est un document de travail professionnel, pas un résumé
 
 ## Infos projet :
 - Entreprise : ${project.client_name}
 - Site : ${project.url || "Non renseigné"}
-${project.context ? `- Contexte initial : ${project.context.substring(0, 2000)}...` : ""}
+${project.context ? `- Contexte initial fourni par le consultant :\n${project.context}\n` : ""}
 
-## Conversation complète :
-${conversationText}`;
+## Conversation complète à analyser :
+${conversationText}
+
+## RAPPEL FINAL
+Relis la conversation une dernière fois avant de générer. Chaque information du client est précieuse et doit figurer dans le document. Un bon brief est un brief où RIEN n'est oublié.`;
 }

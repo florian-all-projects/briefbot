@@ -76,7 +76,7 @@ export async function POST(request) {
     // Première passe : générer le document complet
     const response1 = await callWithRetry({
       model: 'claude-sonnet-4-6',
-      max_tokens: 8000,
+      max_tokens: 16000,
       messages: [{ role: 'user', content: exportPrompt }],
     });
 
@@ -93,7 +93,7 @@ export async function POST(request) {
       console.log('[Export] Réponse tronquée, demande de continuation...');
       const response2 = await callWithRetry({
         model: 'claude-sonnet-4-6',
-        max_tokens: 8000,
+        max_tokens: 16000,
         messages: [
           { role: 'user', content: exportPrompt },
           { role: 'assistant', content: htmlContent },
