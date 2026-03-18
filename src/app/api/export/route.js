@@ -32,12 +32,14 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Projet non trouvé' }, { status: 404 });
     }
 
-    if (project.tokens_used >= project.tokens_limit) {
+    const currentCost = project.cost_micro_usd || 0;
+    const budget = project.budget_micro_usd || 5000000;
+    if (currentCost >= budget) {
       return NextResponse.json({
-        error: 'Limite de tokens atteinte pour ce projet.',
+        error: 'Budget atteint pour ce projet.',
         limit_reached: true,
-        tokens_used: project.tokens_used,
-        tokens_limit: project.tokens_limit,
+        cost_usd: currentCost / 1000000,
+        budget_usd: budget / 1000000,
       }, { status: 429 });
     }
 
@@ -65,7 +67,17 @@ export async function POST(request) {
       .map(b => b.text)
       .join('\n');
 
-    const exportTokens = (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0);
+    const inputTokens = response.usage?.input_tokens || 0;
+    const outputTokens = response.usage?.output_tokens || 0;
+    const exportTokens = inputTokens + outputTokens;
+
+    // Coût réel en micro-dollars : $3/M input (3µ$/token) + $15/M output (15µ$/token)
+    const costMicro = inputTokens * 3 + outputTokens * 15;
+    await sb.rpc('increment_project_cost', {
+      project_id: projectId,
+      amount: costMicro,
+    });
+    // Aussi incrémenter tokens pour référence
     await sb.rpc('increment_project_tokens', {
       project_id: projectId,
       amount: exportTokens,

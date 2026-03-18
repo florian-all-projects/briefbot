@@ -193,7 +193,7 @@ export default function ClientPage() {
   }
 
   // ─── Chat ───
-  const currentPhase = PHASES.find(p => p.id === (project.current_phase || 1));
+  const currentPhase = PHASES.find(p => p.id === (project.current_phase ?? 0));
 
   return (
     <div className="h-screen flex bg-slate-50 overflow-hidden">
@@ -215,7 +215,7 @@ export default function ClientPage() {
                 key={phase.id}
                 onClick={() => goToPhase(phase.id)}
                 className={`w-full text-left px-3 py-2 rounded-lg transition-all flex items-center gap-2 ${
-                  project.current_phase === phase.id
+                  (project.current_phase ?? 0) === phase.id
                     ? 'bg-amber-50 border border-amber-300'
                     : (project.phases_completed || []).includes(phase.id)
                     ? 'bg-emerald-50/60 border border-emerald-200 hover:bg-emerald-50'
@@ -225,7 +225,7 @@ export default function ClientPage() {
                 <span className="text-base">{(project.phases_completed || []).includes(phase.id) ? '✅' : phase.icon}</span>
                 <div className="min-w-0">
                   <div className={`text-xs font-semibold truncate ${
-                    project.current_phase === phase.id ? 'text-amber-800'
+                    (project.current_phase ?? 0) === phase.id ? 'text-amber-800'
                     : (project.phases_completed || []).includes(phase.id) ? 'text-emerald-700' : 'text-slate-700'
                   }`}>{phase.name}</div>
                   <div className="text-[10px] text-slate-400 truncate">{phase.desc}</div>
@@ -236,10 +236,10 @@ export default function ClientPage() {
 
           <div className="p-4 border-t border-slate-100">
             <div className="text-center text-[10px] text-slate-400">
-              {(project.phases_completed || []).length}/10 phases complétées
+              {(project.phases_completed || []).filter(id => id > 0).length}/10 phases complétées
             </div>
             <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2">
-              <div className="bg-gradient-to-r from-amber-500 to-orange-500 h-1.5 rounded-full transition-all" style={{ width: `${((project.phases_completed || []).length / 10) * 100}%` }} />
+              <div className="bg-gradient-to-r from-amber-500 to-orange-500 h-1.5 rounded-full transition-all" style={{ width: `${((project.phases_completed || []).filter(id => id > 0).length / 10) * 100}%` }} />
             </div>
           </div>
         </div>
@@ -254,7 +254,7 @@ export default function ClientPage() {
           </button>
           <div className="flex-1">
             <span className="text-sm font-semibold text-slate-800">{project.client_name}</span>
-            <span className="text-xs text-slate-400 ml-2">Phase {project.current_phase || 1} — {currentPhase?.name}</span>
+            <span className="text-xs text-slate-400 ml-2">Phase {project.current_phase ?? 0} — {currentPhase?.name}</span>
           </div>
           <div className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700">
             👤 Briefing en cours

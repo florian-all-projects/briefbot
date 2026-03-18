@@ -10,11 +10,13 @@ CREATE TABLE projects (
   client_name TEXT NOT NULL,
   url TEXT DEFAULT '',
   context TEXT DEFAULT '',
-  current_phase INTEGER DEFAULT 1,
+  current_phase INTEGER DEFAULT 0,
   phases_completed INTEGER[] DEFAULT '{}',
   share_token TEXT UNIQUE DEFAULT encode(gen_random_bytes(12), 'hex'),
   tokens_used INTEGER DEFAULT 0,
   tokens_limit INTEGER DEFAULT 50000,
+  cost_micro_usd BIGINT DEFAULT 0,
+  budget_micro_usd BIGINT DEFAULT 5000000,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -122,4 +124,14 @@ RETURNS INTEGER AS $$
   SET tokens_used = COALESCE(tokens_used, 0) + amount
   WHERE id = project_id
   RETURNING tokens_used;
+$$ LANGUAGE sql SECURITY DEFINER;
+
+-- Incrément atomique du coût en micro-dollars ($1 = 1 000 000)
+-- Pricing Claude Sonnet : $3/M input = 3 µ$/token, $15/M output = 15 µ$/token
+CREATE OR REPLACE FUNCTION increment_project_cost(project_id UUID, amount BIGINT)
+RETURNS BIGINT AS $$
+  UPDATE projects
+  SET cost_micro_usd = COALESCE(cost_micro_usd, 0) + amount
+  WHERE id = project_id
+  RETURNING cost_micro_usd;
 $$ LANGUAGE sql SECURITY DEFINER;

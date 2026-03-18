@@ -66,13 +66,16 @@ git push -u origin main
 2. Importe ton repo GitHub `briefbot`
 3. Dans **Environment Variables**, ajoute :
 
-| Variable | Valeur |
-|----------|--------|
-| `ANTHROPIC_API_KEY` | `sk-ant-xxx...` |
-| `NEXT_PUBLIC_SUPABASE_URL` | `https://xxx.supabase.co` |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJ...` |
-| `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` |
-| `CONSULTANT_PASSWORD` | Le mot de passe que tu veux pour accéder au dashboard |
+| Variable | Valeur | Requis |
+|----------|--------|--------|
+| `ANTHROPIC_API_KEY` | `sk-ant-xxx...` | Oui |
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://xxx.supabase.co` | Oui |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJ...` | Oui |
+| `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` | Oui |
+| `CONSULTANT_PASSWORD` | Le mot de passe que tu veux pour accéder au dashboard | Oui |
+| `SERP_API_KEY` | Clé API SerpAPI pour la recherche Google (serpapi.com) | Optionnel |
+| `HALOSCAN_API_KEY` | Clé API Haloscan pour l'analyse SEO | Optionnel |
+| `HALOSCAN_API_URL` | ~~Non nécessaire~~ — URL fixe : `https://api.haloscan.com/api` | Non |
 
 4. Clique **Deploy** → attend 1-2 minutes → c'est en ligne ! 🎉
 

@@ -202,7 +202,7 @@ export default function Chat({ project: initialProject, initialMessages, mode: d
     setLoading(false);
   };
 
-  const currentPhase = PHASES.find(p => p.id === (project.current_phase || 1));
+  const currentPhase = PHASES.find(p => p.id === (project.current_phase ?? 0));
 
   return (
     <div className="h-screen flex bg-slate-50 overflow-hidden">
@@ -252,7 +252,7 @@ export default function Chat({ project: initialProject, initialMessages, mode: d
               <PhaseChip
                 key={phase.id}
                 phase={phase}
-                isActive={project.current_phase === phase.id}
+                isActive={(project.current_phase ?? 0) === phase.id}
                 isComplete={(project.phases_completed || []).includes(phase.id)}
                 onClick={() => goToPhase(phase.id)}
               />
@@ -275,7 +275,7 @@ export default function Chat({ project: initialProject, initialMessages, mode: d
           <div className="flex-1 min-w-0">
             <span className="text-sm font-semibold text-slate-800">{project.client_name}</span>
             <span className="text-xs text-slate-400 ml-2">
-              Phase {project.current_phase || 1} — {currentPhase?.name}
+              Phase {project.current_phase ?? 0} — {currentPhase?.name}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -285,7 +285,7 @@ export default function Chat({ project: initialProject, initialMessages, mode: d
               {mode === 'consultant' ? '🔧 Consultant' : '👤 Client'}
             </div>
             <div className="text-[10px] text-slate-400">
-              {(project.phases_completed || []).length}/10 phases
+              {(project.phases_completed || []).filter(id => id > 0).length}/10 phases
             </div>
           </div>
         </div>

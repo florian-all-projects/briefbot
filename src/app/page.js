@@ -2,40 +2,40 @@
 
 import { useState, useEffect, useRef } from 'react';
 
-// ─── Token helpers ───
-function formatTokens(n) {
-  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
-  if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
-  return n.toString();
+// ─── Cost helpers ───
+function microToUsd(micro) {
+  return (micro || 0) / 1000000;
 }
 
-function estimateCost(tokens) {
-  // $3/M input + $15/M output, ~80% input / 20% output = ~$5.4/M blended
-  // Converted to EUR at ~1.10 USD/EUR ≈ €5/M tokens
-  return (tokens / 1000000 * 5).toFixed(2);
+function formatUsd(usd) {
+  if (usd >= 1) return '$' + usd.toFixed(2);
+  if (usd >= 0.01) return '$' + usd.toFixed(2);
+  return '$' + usd.toFixed(3);
 }
 
-function tokenPercentage(used, limit) {
-  if (!limit) return 0;
-  return Math.min(Math.round((used / limit) * 100), 100);
+function costPercentage(costMicro, budgetMicro) {
+  if (!budgetMicro) return 0;
+  return Math.min(Math.round(((costMicro || 0) / budgetMicro) * 100), 100);
 }
 
-function tokenBarColor(pct) {
+function costBarColor(pct) {
   if (pct >= 90) return 'from-red-500 to-red-600';
   if (pct >= 70) return 'from-amber-500 to-orange-500';
   return 'from-emerald-500 to-green-500';
 }
 
-// ─── Token display component ───
-function TokenBar({ used, limit, showCost = false, size = 'normal' }) {
-  const pct = tokenPercentage(used || 0, limit || 50000);
+// ─── Cost display component ───
+function CostBar({ costMicro, budgetMicro, showDetail = false, size = 'normal' }) {
+  const cost = costMicro || 0;
+  const budget = budgetMicro || 5000000;
+  const pct = costPercentage(cost, budget);
   const isSmall = size === 'small';
 
   return (
     <div className={isSmall ? '' : 'space-y-1'}>
       <div className="flex items-center justify-between">
         <span className={`font-semibold ${isSmall ? 'text-[10px] text-slate-500' : 'text-xs text-slate-600'}`}>
-          {formatTokens(used || 0)} / {formatTokens(limit || 50000)} tokens
+          {formatUsd(microToUsd(cost))} / {formatUsd(microToUsd(budget))}
         </span>
         <span className={`font-bold ${isSmall ? 'text-[10px]' : 'text-xs'} ${
           pct >= 90 ? 'text-red-600' : pct >= 70 ? 'text-amber-600' : 'text-emerald-600'
@@ -45,13 +45,13 @@ function TokenBar({ used, limit, showCost = false, size = 'normal' }) {
       </div>
       <div className={`w-full bg-slate-200 rounded-full ${isSmall ? 'h-1 mt-0.5' : 'h-2'}`}>
         <div
-          className={`h-full rounded-full bg-gradient-to-r ${tokenBarColor(pct)} transition-all duration-500`}
+          className={`h-full rounded-full bg-gradient-to-r ${costBarColor(pct)} transition-all duration-500`}
           style={{ width: `${pct}%` }}
         />
       </div>
-      {showCost && (
+      {showDetail && (
         <div className="text-[10px] text-slate-400">
-          Coût estimé : ~{estimateCost(used || 0)}€
+          Coût réel API Claude (input $3/M + output $15/M)
         </div>
       )}
     </div>
@@ -84,6 +84,8 @@ export default function Dashboard() {
   const [newUrl, setNewUrl] = useState('');
   const [newContext, setNewContext] = useState('');
   const [newTokensLimit, setNewTokensLimit] = useState('1000000');
+  const [newBudgetUsd, setNewBudgetUsd] = useState('5');
+  const TOTAL_CONTENT_PHASES = 10; // Phases 1-10 (Phase 0 = profiling, pas comptée dans la progression)
 
   const chatEndRef = useRef(null);
 
@@ -144,13 +146,14 @@ export default function Dashboard() {
           client_name: newClient.trim(),
           url: newUrl.trim(),
           context: newContext.trim(),
-          tokens_limit: parseInt(newTokensLimit) || 50000,
+          tokens_limit: parseInt(newTokensLimit) || 1000000,
+          budget_usd: parseFloat(newBudgetUsd) || 5,
           password: storedPw,
         }),
       });
       const data = await res.json();
       if (data.project) {
-        setNewName(''); setNewClient(''); setNewUrl(''); setNewContext(''); setNewTokensLimit('50000');
+        setNewName(''); setNewClient(''); setNewUrl(''); setNewContext(''); setNewBudgetUsd('5');
         await loadProjects();
         openProject(data.project);
       }
@@ -170,20 +173,19 @@ export default function Dashboard() {
     await loadProjects();
   };
 
-  const updateTokenLimit = async (projectId) => {
-    const newLimit = parseInt(newLimitValue);
-    if (!newLimit || newLimit < 1000) return;
+  const updateBudget = async (projectId) => {
+    const newBudget = parseFloat(newLimitValue);
+    if (!newBudget || newBudget < 1) return;
     await fetch('/api/projects', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId, tokens_limit: newLimit, password: storedPw }),
+      body: JSON.stringify({ projectId, budget_usd: newBudget, password: storedPw }),
     });
     setEditingLimit(null);
     setNewLimitValue('');
     await loadProjects();
-    // Update selected project if we're in chat
     if (selectedProject?.id === projectId) {
-      setSelectedProject(prev => ({ ...prev, tokens_limit: newLimit }));
+      setSelectedProject(prev => ({ ...prev, budget_micro_usd: Math.round(newBudget * 1000000) }));
     }
   };
 
@@ -226,7 +228,7 @@ export default function Dashboard() {
 
       if (data.limit_reached) {
         setLimitReached(true);
-        setError('⚠️ Limite de tokens atteinte pour ce projet.');
+        setError('⚠️ Budget API atteint pour ce projet.');
         // Remove the user message we optimistically added
         setMessages(prev => prev.slice(0, -1));
         setChatLoading(false);
@@ -238,9 +240,9 @@ export default function Dashboard() {
       const aiMsg = { role: 'assistant', content: data.content, mode, created_at: new Date().toISOString() };
       setMessages(prev => [...prev, aiMsg]);
 
-      // Update token count locally
-      if (data.tokens_used != null) {
-        setSelectedProject(prev => ({ ...prev, tokens_used: data.tokens_used }));
+      // Update cost locally
+      if (data.cost_usd != null) {
+        setSelectedProject(prev => ({ ...prev, cost_micro_usd: Math.round(data.cost_usd * 1000000) }));
       }
 
       const phaseMatch = data.content.match(/✅\s*Phase\s*(\d+)/);
@@ -283,15 +285,15 @@ export default function Dashboard() {
       const data = await res.json();
       if (data.limit_reached) {
         setLimitReached(true);
-        setError('⚠️ Limite de tokens atteinte.');
+        setError('⚠️ Budget API atteint.');
         setMessages(prev => prev.slice(0, -1));
         setChatLoading(false);
         return;
       }
       if (data.error) throw new Error(data.error);
       setMessages(prev => [...prev, { role: 'assistant', content: data.content, mode, created_at: new Date().toISOString() }]);
-      if (data.tokens_used != null) {
-        setSelectedProject(prev => ({ ...prev, tokens_used: data.tokens_used }));
+      if (data.cost_usd != null) {
+        setSelectedProject(prev => ({ ...prev, cost_micro_usd: Math.round(data.cost_usd * 1000000) }));
       }
     } catch (e) {
       setError('Erreur : ' + e.message);
@@ -404,18 +406,18 @@ export default function Dashboard() {
               <input type="text" value={newUrl} onChange={e => setNewUrl(e.target.value)} placeholder="Ex: https://monkeykwest.com" className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm bg-white" />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Limite de tokens</label>
-              <p className="text-xs text-slate-400 mb-2">5€ ≈ 1M tokens ≈ 3-4 briefings complets. Tu peux augmenter plus tard.</p>
+              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Budget API</label>
+              <p className="text-xs text-slate-400 mb-2">Coût réel de l'API Claude. ~$5 = 3-4 briefings complets. Modifiable plus tard.</p>
               <div className="flex gap-2">
-                {[{ value: '1000000', label: '5€' }, { value: '2000000', label: '10€' }].map(({ value, label }) => (
+                {[{ value: '5', label: '$5' }, { value: '10', label: '$10' }, { value: '20', label: '$20' }].map(({ value, label }) => (
                   <button
                     key={value}
-                    onClick={() => setNewTokensLimit(value)}
+                    onClick={() => setNewBudgetUsd(value)}
                     className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all ${
-                      newTokensLimit === value ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                      newBudgetUsd === value ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
                     }`}
                   >
-                    {label} (~{formatTokens(parseInt(value))} tokens)
+                    {label}
                   </button>
                 ))}
               </div>
@@ -443,7 +445,7 @@ export default function Dashboard() {
   // ─── CHAT ───
   if (view === 'chat' && selectedProject) {
     const PHASES = require('@/lib/phases').PHASES;
-    const currentPhase = PHASES.find(p => p.id === (selectedProject.current_phase || 1));
+    const currentPhase = PHASES.find(p => p.id === (selectedProject.current_phase ?? 0));
 
     return (
       <div className="h-screen flex bg-slate-50 overflow-hidden">
@@ -458,28 +460,33 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {/* Token counter */}
+            {/* Cost counter */}
             <div className="px-4 py-3 border-b border-slate-100">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Consommation API</label>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Coût API</label>
               <div className="mt-2">
-                <TokenBar used={selectedProject.tokens_used} limit={selectedProject.tokens_limit} showCost={true} />
+                <CostBar costMicro={selectedProject.cost_micro_usd} budgetMicro={selectedProject.budget_micro_usd} showDetail={true} />
               </div>
               <button
-                onClick={() => { setEditingLimit(selectedProject.id); setNewLimitValue(String(selectedProject.tokens_limit || 50000)); }}
+                onClick={() => { setEditingLimit(selectedProject.id); setNewLimitValue(String(microToUsd(selectedProject.budget_micro_usd || 5000000))); }}
                 className="mt-2 text-[10px] text-blue-600 hover:underline"
               >
-                Modifier la limite
+                Modifier le budget
               </button>
               {editingLimit === selectedProject.id && (
                 <div className="mt-2 flex gap-1.5 animate-fade-in">
-                  <input
-                    type="number"
-                    value={newLimitValue}
-                    onChange={e => setNewLimitValue(e.target.value)}
-                    className="flex-1 px-2 py-1 border border-slate-300 rounded-md text-xs"
-                    placeholder="Ex: 100000"
-                  />
-                  <button onClick={() => updateTokenLimit(selectedProject.id)} className="px-2 py-1 bg-blue-600 text-white rounded-md text-xs font-semibold">OK</button>
+                  <div className="flex-1 flex items-center gap-1">
+                    <span className="text-xs text-slate-500">$</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="1"
+                      value={newLimitValue}
+                      onChange={e => setNewLimitValue(e.target.value)}
+                      className="flex-1 px-2 py-1 border border-slate-300 rounded-md text-xs"
+                      placeholder="Ex: 10"
+                    />
+                  </div>
+                  <button onClick={() => updateBudget(selectedProject.id)} className="px-2 py-1 bg-blue-600 text-white rounded-md text-xs font-semibold">OK</button>
                   <button onClick={() => setEditingLimit(null)} className="px-2 py-1 text-slate-500 text-xs">✕</button>
                 </div>
               )}
@@ -502,7 +509,7 @@ export default function Dashboard() {
                   key={phase.id}
                   onClick={() => goToPhase(phase.id)}
                   className={`w-full text-left px-3 py-2 rounded-lg transition-all flex items-center gap-2 ${
-                    selectedProject.current_phase === phase.id
+                    (selectedProject.current_phase ?? 0) === phase.id
                       ? 'bg-amber-50 border border-amber-300'
                       : (selectedProject.phases_completed || []).includes(phase.id)
                       ? 'bg-emerald-50/60 border border-emerald-200 hover:bg-emerald-50'
@@ -512,7 +519,7 @@ export default function Dashboard() {
                   <span className="text-base">{(selectedProject.phases_completed || []).includes(phase.id) ? '✅' : phase.icon}</span>
                   <div className="min-w-0">
                     <div className={`text-xs font-semibold truncate ${
-                      selectedProject.current_phase === phase.id ? 'text-amber-800' : (selectedProject.phases_completed || []).includes(phase.id) ? 'text-emerald-700' : 'text-slate-700'
+                      (selectedProject.current_phase ?? 0) === phase.id ? 'text-amber-800' : (selectedProject.phases_completed || []).includes(phase.id) ? 'text-emerald-700' : 'text-slate-700'
                     }`}>{phase.name}</div>
                   </div>
                 </button>
@@ -556,12 +563,12 @@ export default function Dashboard() {
             </button>
             <div className="flex-1">
               <span className="text-sm font-semibold text-slate-800">{selectedProject.client_name}</span>
-              <span className="text-xs text-slate-400 ml-2">Phase {selectedProject.current_phase || 1} — {currentPhase?.name}</span>
+              <span className="text-xs text-slate-400 ml-2">Phase {selectedProject.current_phase ?? 0} — {currentPhase?.name}</span>
             </div>
             <div className="flex items-center gap-3">
-              {/* Mini token bar in top bar */}
+              {/* Mini cost bar in top bar */}
               <div className="w-24 hidden sm:block">
-                <TokenBar used={selectedProject.tokens_used} limit={selectedProject.tokens_limit} size="small" />
+                <CostBar costMicro={selectedProject.cost_micro_usd} budgetMicro={selectedProject.budget_micro_usd} size="small" />
               </div>
               <div className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${mode === 'consultant' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
                 {mode === 'consultant' ? '🔧 Consultant' : '👤 Client'}
@@ -619,7 +626,7 @@ export default function Dashboard() {
           <div className="border-t border-slate-200 bg-white p-4">
             {limitReached ? (
               <div className="text-center py-3 text-sm text-amber-700 bg-amber-50 rounded-xl border border-amber-200">
-                ⚠️ Limite de tokens atteinte. <button onClick={() => { setEditingLimit(selectedProject.id); setNewLimitValue(String((selectedProject.tokens_limit || 50000) * 2)); setSidebarOpen(true); }} className="font-bold underline">Augmenter la limite</button>
+                ⚠️ Budget atteint ({formatUsd(microToUsd(selectedProject.cost_micro_usd))}). <button onClick={() => { setEditingLimit(selectedProject.id); setNewLimitValue(String(microToUsd(selectedProject.budget_micro_usd || 5000000) * 2)); setSidebarOpen(true); }} className="font-bold underline">Augmenter le budget</button>
               </div>
             ) : (
               <div className="flex gap-3 items-end max-w-4xl mx-auto">
@@ -691,7 +698,7 @@ export default function Dashboard() {
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold text-slate-800 truncate">{p.name}</div>
                     <div className="text-xs text-slate-400">
-                      {p.client_name} · Phase {p.current_phase || 1}/10
+                      {p.client_name} · Phase {p.current_phase ?? 0}/10
                     </div>
                   </div>
                   <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
@@ -701,9 +708,9 @@ export default function Dashboard() {
                     <button onClick={() => deleteProject(p.id)} className="text-xs bg-red-50 text-red-500 px-2.5 py-1.5 rounded-lg hover:bg-red-100">🗑</button>
                   </div>
                 </div>
-                {/* Token bar on project card */}
+                {/* Cost bar on project card */}
                 <div className="mt-3 px-1">
-                  <TokenBar used={p.tokens_used} limit={p.tokens_limit} size="small" />
+                  <CostBar costMicro={p.cost_micro_usd} budgetMicro={p.budget_micro_usd} size="small" />
                 </div>
               </div>
             ))}
