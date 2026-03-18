@@ -75,7 +75,7 @@ export async function POST(request) {
 
     const response = await callWithRetry({
       model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
+      max_tokens: 8000,
       messages: [{ role: 'user', content: exportPrompt }],
     });
 
