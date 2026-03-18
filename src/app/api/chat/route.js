@@ -1,24 +1,20 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { getServiceSupabase } from '@/lib/supabase';
-import { buildSystemPrompt } from '@/lib/phases';
+import { buildSystemPrompt, PHASES } from '@/lib/phases';
 import { TOOLS, executeTool } from '@/lib/tools';
 
-// Timeout max pour le plan Vercel (10s hobby, 60s pro)
 export const maxDuration = 60;
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// Pricing Claude Sonnet en micro-dollars par token
-// $3/M input = 3 µ$/token, $15/M output = 15 µ$/token
 const INPUT_COST_MICRO = 3;
 const OUTPUT_COST_MICRO = 15;
 
-// Nombre max de messages d'historique envoyés à l'API
-// Au-delà, on garde un résumé des premiers + les N derniers
-const MAX_HISTORY_MESSAGES = 30;
+// Nombre max de messages récents à envoyer (phase en cours uniquement)
+const MAX_RECENT_MESSAGES = 16;
 
 // ── Retry avec exponential backoff ──
 async function callAnthropicWithRetry(params, maxRetries = 3) {
@@ -27,7 +23,7 @@ async function callAnthropicWithRetry(params, maxRetries = 3) {
       return await anthropic.messages.create(params);
     } catch (err) {
       if (err.status === 429 && i < maxRetries - 1) {
-        const wait = Math.pow(2, i) * 1500 + Math.random() * 500; // 1.5s, 3s, 6s
+        const wait = Math.pow(2, i) * 1500 + Math.random() * 500;
         console.log(`[Rate Limit] Retry ${i + 1}/${maxRetries} dans ${Math.round(wait)}ms`);
         await new Promise(r => setTimeout(r, wait));
         continue;
@@ -37,25 +33,110 @@ async function callAnthropicWithRetry(params, maxRetries = 3) {
   }
 }
 
-// ── Tronquer l'historique pour rester sous la limite ──
-function trimHistory(messages) {
-  if (messages.length <= MAX_HISTORY_MESSAGES) return messages;
+// ── Construire les messages avec résumés des phases précédentes ──
+function buildSmartMessages(allMessages, phaseSummaries) {
+  const summaries = phaseSummaries || {};
+  const summaryKeys = Object.keys(summaries).sort((a, b) => Number(a) - Number(b));
 
-  // Garder les 4 premiers messages (contexte initial + profiling Phase 0)
-  // + les N derniers messages (conversation récente)
-  const keepStart = 4;
-  const keepEnd = MAX_HISTORY_MESSAGES - keepStart - 1; // -1 pour le message résumé
-  const start = messages.slice(0, keepStart);
-  const end = messages.slice(-keepEnd);
+  // S'il y a des résumés de phases, on les injecte comme contexte
+  // puis on ne garde que les messages récents
+  if (summaryKeys.length > 0) {
+    const summaryText = summaryKeys
+      .map(phaseId => {
+        const phaseName = PHASES.find(p => p.id === Number(phaseId))?.name || `Phase ${phaseId}`;
+        return `## Résumé Phase ${phaseId} — ${phaseName}\n${summaries[phaseId]}`;
+      })
+      .join('\n\n');
 
-  // Insérer un message résumé entre les deux
-  const skipped = messages.length - keepStart - keepEnd;
-  const summary = {
-    role: 'user',
-    content: `[Note système : ${skipped} messages intermédiaires ont été omis pour optimiser la conversation. Les informations clés ont été collectées dans les phases précédentes. Continue avec le contexte disponible.]`,
-  };
+    const contextMessage = {
+      role: 'user',
+      content: `[CONTEXTE — Résumés des phases précédentes. Ces informations ont déjà été collectées, NE PAS reposer ces questions.]\n\n${summaryText}\n\n[FIN DU CONTEXTE — Continue la conversation à partir d'ici.]`,
+    };
 
-  return [...start, summary, ...end];
+    // Garder seulement les messages récents (phase en cours)
+    const recentMessages = allMessages.slice(-MAX_RECENT_MESSAGES);
+
+    return [contextMessage, ...recentMessages];
+  }
+
+  // Pas de résumés encore → garder les messages classiques (tronqués si besoin)
+  if (allMessages.length <= MAX_RECENT_MESSAGES + 4) return allMessages;
+
+  const start = allMessages.slice(0, 4);
+  const end = allMessages.slice(-MAX_RECENT_MESSAGES);
+  const skipped = allMessages.length - 4 - MAX_RECENT_MESSAGES;
+
+  return [
+    ...start,
+    { role: 'user', content: `[${skipped} messages omis — les informations clés sont dans les résumés de phase quand disponibles.]` },
+    ...end,
+  ];
+}
+
+// ── Générer un résumé de phase (appel léger) ──
+async function generatePhaseSummary(sb, projectId, phaseId, allMessages) {
+  const phaseName = PHASES.find(p => p.id === phaseId)?.name || `Phase ${phaseId}`;
+
+  // Prendre les derniers messages pertinents (ceux de cette phase)
+  const recentConv = allMessages.slice(-30)
+    .map(m => `${m.role === 'user' ? 'CLIENT' : 'BRIEFBOT'}: ${m.content}`)
+    .join('\n');
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 800,
+      messages: [{
+        role: 'user',
+        content: `Résume en bullet points TOUTES les informations clés collectées pendant la Phase ${phaseId} — ${phaseName} de ce briefing.
+
+RÈGLES :
+- Reprends CHAQUE information concrète : noms, chiffres, URLs, villes, dates, budgets
+- Format : bullet points concis mais exhaustifs
+- Ne mets PAS de commentaires ou recommandations, uniquement les FAITS collectés
+- Si le client a donné un chiffre ou un nom, il DOIT apparaître
+- Français uniquement
+
+Conversation récente :
+${recentConv.substring(0, 8000)}`
+      }],
+    });
+
+    const summary = response.content
+      .filter(b => b.type === 'text')
+      .map(b => b.text)
+      .join('\n');
+
+    // Coût du résumé
+    const inputTokens = response.usage?.input_tokens || 0;
+    const outputTokens = response.usage?.output_tokens || 0;
+    const costMicro = inputTokens * INPUT_COST_MICRO + outputTokens * OUTPUT_COST_MICRO;
+
+    await sb.rpc('increment_project_cost', { project_id: projectId, amount: costMicro });
+    await sb.rpc('increment_project_tokens', { project_id: projectId, amount: inputTokens + outputTokens });
+
+    // Sauvegarder le résumé dans le projet
+    const { data: proj } = await sb
+      .from('projects')
+      .select('phase_summaries')
+      .eq('id', projectId)
+      .single();
+
+    const existingSummaries = proj?.phase_summaries || {};
+    existingSummaries[String(phaseId)] = summary;
+
+    await sb
+      .from('projects')
+      .update({ phase_summaries: existingSummaries })
+      .eq('id', projectId);
+
+    console.log(`[Phase Summary] Phase ${phaseId} résumée (${summary.length} chars, coût: ${costMicro}µ$)`);
+
+    return summary;
+  } catch (err) {
+    console.error(`[Phase Summary] Erreur résumé phase ${phaseId}:`, err.message);
+    return null;
+  }
 }
 
 export async function POST(request) {
@@ -78,7 +159,6 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Projet non trouvé' }, { status: 404 });
     }
 
-    // Vérifier le budget (système en micro-dollars)
     const currentCost = project.cost_micro_usd || 0;
     const budget = project.budget_micro_usd || 5000000;
     if (currentCost >= budget) {
@@ -110,10 +190,10 @@ export async function POST(request) {
       content: m.content,
     }));
 
-    // Tronquer l'historique si trop long
-    const apiMessages = trimHistory(allMessages);
+    // Construire les messages intelligemment :
+    // résumés des phases complétées + messages récents uniquement
+    const apiMessages = buildSmartMessages(allMessages, project.phase_summaries);
 
-    // System prompt avec cache_control pour le prompt caching
     const systemPrompt = buildSystemPrompt(project, mode || 'client');
 
     // ── Boucle tool use ──
@@ -182,17 +262,15 @@ export async function POST(request) {
       .map(b => b.text)
       .join('\n');
 
-    // Calculer le coût réel en micro-dollars
+    // Calculer le coût réel
     const costMicro = totalInputTokens * INPUT_COST_MICRO + totalOutputTokens * OUTPUT_COST_MICRO;
     const totalTokens = totalInputTokens + totalOutputTokens;
 
-    // Incrémenter le coût réel
     const { data: newCostMicro, error: costRpcErr } = await sb.rpc('increment_project_cost', {
       project_id: projectId,
       amount: costMicro,
     });
 
-    // Incrémenter aussi les tokens (pour référence)
     await sb.rpc('increment_project_tokens', {
       project_id: projectId,
       amount: totalTokens,
@@ -200,7 +278,7 @@ export async function POST(request) {
 
     const actualCostMicro = costRpcErr ? currentCost + costMicro : newCostMicro;
 
-    // Sauvegarder la réponse finale
+    // Sauvegarder la réponse
     await sb.from('messages').insert({
       project_id: projectId,
       role: 'assistant',
@@ -208,7 +286,7 @@ export async function POST(request) {
       mode: mode || 'client',
     });
 
-    // Détecter la complétion de phase
+    // Détecter la complétion de phase → générer un résumé automatiquement
     const phaseMatch = aiText.match(/✅\s*Phase\s*(\d+)/);
     if (phaseMatch) {
       const completedId = parseInt(phaseMatch[1]);
@@ -221,6 +299,10 @@ export async function POST(request) {
             current_phase: Math.min(completedId + 1, 10),
           })
           .eq('id', projectId);
+
+        // Générer le résumé de la phase complétée (en arrière-plan, non bloquant)
+        generatePhaseSummary(sb, projectId, completedId, allMessages)
+          .catch(err => console.error('[Phase Summary] Background error:', err));
       }
     }
 
@@ -238,7 +320,6 @@ export async function POST(request) {
   } catch (err) {
     console.error('Chat API error:', err);
 
-    // Message d'erreur plus clair pour le rate limit
     if (err.status === 429) {
       return NextResponse.json(
         { error: 'L\'API Claude est temporairement surchargée. Réessayez dans quelques secondes.' },

@@ -30,6 +30,16 @@ export function buildSystemPrompt(project, mode) {
   const currentPhase = project.current_phase ?? 0;
   const currentPhaseName = PHASES.find(p => p.id === currentPhase)?.name || "Profil & Niveau";
 
+  // Construire le bloc des résumés de phases
+  const summaries = project.phase_summaries || {};
+  const summaryBlock = Object.keys(summaries).length > 0
+    ? `\n## Résumés des phases précédentes (DÉJÀ COLLECTÉ — ne PAS reposer ces questions)\n` +
+      Object.keys(summaries).sort((a, b) => Number(a) - Number(b)).map(phaseId => {
+        const pName = PHASES.find(p => p.id === Number(phaseId))?.name || `Phase ${phaseId}`;
+        return `### Phase ${phaseId} — ${pName}\n${summaries[phaseId]}`;
+      }).join('\n\n')
+    : '';
+
   return `Tu es BriefBot, un assistant IA expert en stratégie digitale, SEO, UX design et refonte de sites web. Tu conduis un entretien structuré pour construire un document de briefing complet qui servira de base à la refonte d'un site web, à une stratégie SEO ou de webmarketing.
 
 Tu travailles pour un consultant SEO/web qui utilise cet outil pour collecter toutes les informations nécessaires auprès de ses clients.
@@ -39,6 +49,7 @@ Tu travailles pour un consultant SEO/web qui utilise cet outil pour collecter to
 - Site actuel : ${project.url || "Non renseigné"}
 - Phase en cours : Phase ${currentPhase} — ${currentPhaseName}
 ${phasesDone.length > 0 ? `- Phases complétées : ${phasesDone.join(", ")}` : ""}
+${summaryBlock}
 ${phasesLeft.length > 0 ? `- Phases restantes : ${phasesLeft.join(", ")}` : ""}
 
 ${project.context ? `## Contexte initial fourni\n${project.context}\n` : ""}
@@ -143,7 +154,9 @@ RÈGLES D'UTILISATION DES OUTILS :
 9. Ne fais JAMAIS de liste de plus de 5 points. Reste conversationnel.
 10. Quand tu fais le résumé d'une phase, termine par "✅ Phase X complétée. On passe à la Phase Y ?" pour que l'utilisateur valide.
 11. En Phase 0, sois particulièrement accueillant et rassurant. Explique que ces questions servent à adapter la suite de l'échange à leur niveau.
-12. TOUJOURS adapter le vocabulaire et la complexité des questions au niveau identifié en Phase 0.`;
+12. TOUJOURS adapter le vocabulaire et la complexité des questions au niveau identifié en Phase 0.
+13. JAMAIS reposer une question dont la réponse figure déjà dans les résumés des phases précédentes. Si tu as besoin de préciser un point déjà abordé, reformule : "Vous m'aviez indiqué que [info]. Pourriez-vous préciser [point spécifique] ?"
+14. Les résumés des phases précédentes sont ta MÉMOIRE. Utilise-les activement pour faire des liens entre les phases et enrichir tes questions.`;
 }
 
 // ══════════════════════════════════════
