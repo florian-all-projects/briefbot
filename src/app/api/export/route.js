@@ -65,7 +65,7 @@ ${conv}`,
     prompt: (project, conv) => `Tu es un expert en rédaction de briefs stratégiques. Génère en HTML les sections suivantes du document de briefing à partir de la conversation.
 
 GÉNÈRE UNIQUEMENT ces sections (HTML pur) :
-7. <h1>Concurrence & Mots-clés</h1> — TOUS les concurrents mentionnés (noms, URLs), TOUS les mots-clés, zone géographique, résultats SERP/Haloscan si mentionnés.
+7. <h1>Concurrence & Mots-clés</h1> — TOUS les concurrents mentionnés (noms, URLs), TOUS les mots-clés, zone géographique, résultats SERP si mentionnés.
 8. <h1>Analyse SWOT</h1> — tableau 2×2 complet avec CHAQUE point identifié.
 9. <h1>Tonalité & Univers de marque</h1> — personnalité, registre, adjectifs, couleurs, inspirations.
 10. <h1>Parcours utilisateur & UX</h1> — parcours idéal par persona, actions prioritaires, fonctionnalités, irritants.
@@ -85,7 +85,7 @@ ${conv}`,
 GÉNÈRE UNIQUEMENT ces sections (HTML pur) :
 12. <h1>Contenus & Storytelling</h1> — histoires marquantes, témoignages, cas d'usage, contenu existant, stratégie éditoriale.
 13. <h1>Éléments existants & Contraintes</h1> — site actuel, ce qui marche/marche pas, CMS, outils, budget, délais.
-14. <h1>Données SEO complémentaires</h1> — données Haloscan, SERP, analyses de sites collectées pendant le briefing.
+14. <h1>Données SEO complémentaires</h1> — données SERP et analyses de sites collectées pendant le briefing.
 15. <h1>Recommandations stratégiques</h1> — recommandations concrètes classées par priorité, chacune justifiée.
 16. <h1>Prochaines étapes</h1> — roadmap avec étapes, livrables et timeline.
 

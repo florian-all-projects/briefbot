@@ -40,43 +40,6 @@ export const TOOLS = [
       required: ["query"]
     }
   },
-  {
-    name: "haloscan_analyze",
-    description: "Analyse SEO d'un domaine via l'API Haloscan. Fournit des données sur la visibilité, les mots-clés positionnés, les backlinks, les top pages et les concurrents SEO. RÈGLE ABSOLUE : cet outil doit être utilisé UNIQUEMENT EN COMPLÉMENT des informations déjà fournies par l'utilisateur. Ne jamais s'en servir comme source principale. D'abord écouter le client, puis enrichir avec Haloscan.",
-    input_schema: {
-      type: "object",
-      properties: {
-        url: {
-          type: "string",
-          description: "L'URL ou le domaine à analyser (ex: 'example.com' ou 'https://example.com')"
-        },
-        analysis_type: {
-          type: "string",
-          enum: ["overview", "keywords", "backlinks", "pages", "competitors"],
-          description: "Type d'analyse : overview (vue d'ensemble SEO du domaine), keywords (mots-clés sur lesquels le domaine est positionné), backlinks (liens entrants), pages (top pages du domaine), competitors (concurrents SEO du domaine)"
-        }
-      },
-      required: ["url"]
-    }
-  },
-  {
-    name: "haloscan_keyword",
-    description: "Analyse SEO d'un mot-clé via Haloscan. Donne le volume de recherche, la difficulté, le CPC et les données SERP pour un mot-clé donné. Utile pour évaluer le potentiel d'un mot-clé mentionné par l'utilisateur. TOUJOURS en complément des infos utilisateur.",
-    input_schema: {
-      type: "object",
-      properties: {
-        keyword: {
-          type: "string",
-          description: "Le mot-clé à analyser"
-        },
-        country: {
-          type: "string",
-          description: "Code pays (ex: 'FR', 'BE', 'CH'). Défaut: 'FR'"
-        }
-      },
-      required: ["keyword"]
-    }
-  }
 ];
 
 // ══════════════════════════════════════
@@ -373,10 +336,6 @@ export async function executeTool(name, input) {
       return await fetchUrl(input.url);
     case 'search_google':
       return await searchGoogle(input.query, input.num_results, input.country);
-    case 'haloscan_analyze':
-      return await haloscanAnalyze(input.url, input.analysis_type);
-    case 'haloscan_keyword':
-      return await haloscanKeywordsOverview(input.keyword, input.country);
     default:
       return { error: `Outil inconnu : ${name}` };
   }
