@@ -227,18 +227,18 @@ export async function POST(request) {
       .eq('project_id', projectId)
       .order('created_at', { ascending: true });
 
-    const allMessages = (history || []).map(m => ({
-      role: m.role,
-      content: m.content,
-      created_at: m.created_at,
-    }));
-
     // Détecter si c'est une reprise de session (dernier message > 1h)
-    const previousMessages = allMessages.slice(0, -1); // sans le message qu'on vient d'insérer
+    const previousMessages = (history || []).slice(0, -1); // sans le message qu'on vient d'insérer
     const lastMsgTime = previousMessages.length > 0
       ? new Date(previousMessages[previousMessages.length - 1].created_at).getTime()
       : null;
     const isReturningSession = lastMsgTime && (Date.now() - lastMsgTime > 60 * 60 * 1000);
+
+    // Messages pour l'API Claude (sans created_at)
+    const allMessages = (history || []).map(m => ({
+      role: m.role,
+      content: m.content,
+    }));
 
     // Construire les messages intelligemment :
     // résumés des phases complétées + messages récents uniquement
