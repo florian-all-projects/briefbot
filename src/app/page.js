@@ -356,9 +356,9 @@ export default function Dashboard() {
     setExportProgress('');
 
     try {
-      // ── Générer le document en 3 parties (chacune < 10s) ──
+      // ── Générer le document en 10 parties (une par section) ──
       const htmlParts = [];
-      const totalParts = 3;
+      const totalParts = 10;
 
       for (let part = 0; part < totalParts; part++) {
         setExportProgress(`Génération ${part + 1}/${totalParts}...`);

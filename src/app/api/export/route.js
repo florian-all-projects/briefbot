@@ -40,64 +40,102 @@ function truncateConversation(messages) {
   return text;
 }
 
-// 3 sections du document, chacune tient dans le timeout de 10s
+// Base du prompt partagé par toutes les sections
+function sectionPrompt(sectionInstruction, project, conv, summaries) {
+  return `Tu es un expert en rédaction de briefs stratégiques. Génère en HTML la section suivante du document de briefing.
+
+GÉNÈRE UNIQUEMENT cette section (HTML pur, pas de balises html/head/body) :
+${sectionInstruction}
+
+RÈGLES :
+- Sois EXHAUSTIF. Reprends CHAQUE info, chiffre, nom.
+- Cite le client entre guillemets quand pertinent.
+- Français uniquement.
+- Utilise h1, h2, h3, p, table, ul, blockquote, strong.
+- Si la section n'a pas été abordée : "⚠️ Section non abordée — À compléter".
+${summaries}
+${project.context ? `\nContexte initial :\n${project.context.substring(0, 8000)}\n` : ""}
+Conversation :
+${conv}`;
+}
+
+// 10 sections du document — une génération par section puis assemblage
 const SECTIONS = [
   {
-    id: 'part1',
-    label: 'Partie 1/3',
-    prompt: (project, conv, summaries) => `Tu es un expert en rédaction de briefs stratégiques. Génère en HTML les sections suivantes du document de briefing à partir de la conversation.
-
-GÉNÈRE UNIQUEMENT ces sections (HTML pur, pas de balises html/head/body) :
-1. <h1>Page de garde</h1> — nom du projet "${project.name}", client "${project.client_name}", date "${new Date().toISOString().slice(0, 10)}", URL "${project.url || 'Non renseigné'}"
-2. <h1>Résumé exécutif</h1> — 1 paragraphe dense synthétisant tout le projet
-3. <h1>Profil de l'interlocuteur</h1> — métier, rôle, niveau digital/SEO/UX
-4. <h1>Identité & Vision</h1> — histoire, mission, valeurs, vision, proposition de valeur unique. TOUS les détails.
-5. <h1>Offre & Services</h1> — liste EXHAUSTIVE avec tableau si pertinent. Tarifs, rentabilité, saisonnalité.
-6. <h1>Cibles & Personas</h1> — fiches personas détaillées. Chaque segment avec profil, motivations, freins, part de CA.
-
-RÈGLES : Sois EXHAUSTIF. Reprends CHAQUE info, chiffre, nom de la conversation. Cite le client entre guillemets. Français uniquement. Utilise h1, h2, h3, p, table, ul, blockquote, strong.
-${summaries}
-${project.context ? `Contexte initial : ${project.context.substring(0, 8000)}\n` : ""}
-Conversation :
-${conv}`,
+    id: 'intro',
+    label: 'Page de garde & Résumé',
+    prompt: (project, conv, summaries) => sectionPrompt(
+      `<h1>Page de garde</h1> — nom du projet "${project.name}", client "${project.client_name}", date "${new Date().toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}", URL "${project.url || 'Non renseigné'}"
+<h1>Résumé exécutif</h1> — 1 paragraphe dense synthétisant tout le projet (enjeux, objectifs, recommandations clés)`,
+      project, conv, summaries),
   },
   {
-    id: 'part2',
-    label: 'Partie 2/3',
-    prompt: (project, conv, summaries) => `Tu es un expert en rédaction de briefs stratégiques. Génère en HTML les sections suivantes du document de briefing à partir de la conversation.
-
-GÉNÈRE UNIQUEMENT ces sections (HTML pur) :
-7. <h1>Concurrence & Mots-clés</h1> — TOUS les concurrents mentionnés (noms, URLs), TOUS les mots-clés, zone géographique, résultats SERP si mentionnés.
-8. <h1>Analyse SWOT</h1> — tableau 2×2 complet avec CHAQUE point identifié.
-9. <h1>Tonalité & Univers de marque</h1> — personnalité, registre, adjectifs, couleurs, inspirations.
-10. <h1>Parcours utilisateur & UX</h1> — parcours idéal par persona, actions prioritaires, fonctionnalités, irritants.
-11. <h1>Objectifs business & SEO</h1> — objectifs chiffrés, KPIs, budget, canaux, mots-clés stratégiques.
-
-RÈGLES : Sois EXHAUSTIF. Reprends CHAQUE info, chiffre, nom. Cite le client. Français uniquement.
-${summaries}
-${project.context ? `Contexte initial : ${project.context.substring(0, 8000)}\n` : ""}
-Conversation :
-${conv}`,
+    id: 'profil',
+    label: 'Profil & Identité',
+    prompt: (project, conv, summaries) => sectionPrompt(
+      `<h1>Profil de l'interlocuteur</h1> — métier, rôle, niveau digital/SEO/UX, connaissances techniques
+<h1>Identité & Vision</h1> — histoire de l'entreprise, mission, valeurs, vision à moyen terme, proposition de valeur unique. TOUS les détails.`,
+      project, conv, summaries),
   },
   {
-    id: 'part3',
-    label: 'Partie 3/3',
-    prompt: (project, conv, summaries) => `Tu es un expert en rédaction de briefs stratégiques. Génère en HTML les sections suivantes du document de briefing à partir de la conversation.
-
-GÉNÈRE UNIQUEMENT ces sections (HTML pur) :
-12. <h1>Contenus & Storytelling</h1> — histoires marquantes, témoignages, cas d'usage, contenu existant, stratégie éditoriale.
-13. <h1>Éléments existants & Contraintes</h1> — site actuel, ce qui marche/marche pas, CMS, outils, budget, délais.
-14. <h1>Données SEO complémentaires</h1> — données SERP et analyses de sites collectées pendant le briefing.
-15. <h1>Recommandations stratégiques</h1> — recommandations concrètes classées par priorité, chacune justifiée.
-16. <h1>Prochaines étapes</h1> — roadmap avec étapes, livrables et timeline.
-
-Si une section n'a pas été abordée : "⚠️ Section non abordée — À compléter".
-
-RÈGLES : Sois EXHAUSTIF. Reprends CHAQUE info. Cite le client. Français uniquement.
-${summaries}
-${project.context ? `Contexte initial : ${project.context.substring(0, 8000)}\n` : ""}
-Conversation :
-${conv}`,
+    id: 'offre',
+    label: 'Offre & Services',
+    prompt: (project, conv, summaries) => sectionPrompt(
+      `<h1>Offre & Services</h1> — liste EXHAUSTIVE de tous les services/produits avec tableau structuré. Pour chacun : description, tarif si mentionné, catégorie, niveau de demande, rentabilité, saisonnalité.`,
+      project, conv, summaries),
+  },
+  {
+    id: 'cibles',
+    label: 'Cibles & Personas',
+    prompt: (project, conv, summaries) => sectionPrompt(
+      `<h1>Cibles & Personas</h1> — fiches personas détaillées. Pour CHAQUE segment : profil (âge, CSP, situation), motivations, freins, parcours d'achat, déclencheurs, part de CA estimée, messages clés à adresser.`,
+      project, conv, summaries),
+  },
+  {
+    id: 'concurrence',
+    label: 'Concurrence & Mots-clés',
+    prompt: (project, conv, summaries) => sectionPrompt(
+      `<h1>Concurrence & Mots-clés</h1> — TOUS les concurrents mentionnés (noms, URLs, forces/faiblesses), TOUS les mots-clés et expressions, zone géographique ciblée, résultats SERP si analysés, intentions de recherche identifiées, comment les clients trouvent actuellement l'entreprise.`,
+      project, conv, summaries),
+  },
+  {
+    id: 'swot',
+    label: 'SWOT & Tonalité',
+    prompt: (project, conv, summaries) => sectionPrompt(
+      `<h1>Analyse SWOT</h1> — tableau 2×2 complet (forces, faiblesses, opportunités, menaces) avec CHAQUE point identifié dans la conversation.
+<h1>Tonalité & Univers de marque</h1> — personnalité de marque, registre de langue, adjectifs, couleurs souhaitées, ambiances, marques d'inspiration, éléments visuels existants (logo, charte).`,
+      project, conv, summaries),
+  },
+  {
+    id: 'ux',
+    label: 'Parcours UX',
+    prompt: (project, conv, summaries) => sectionPrompt(
+      `<h1>Parcours utilisateur & UX</h1> — pour chaque persona : parcours idéal sur le site, actions prioritaires (CTA), fonctionnalités indispensables, structure de page, irritants actuels, navigation souhaitée. Si une analyse du site actuel a été faite, inclure les observations.`,
+      project, conv, summaries),
+  },
+  {
+    id: 'objectifs',
+    label: 'Objectifs & SEO',
+    prompt: (project, conv, summaries) => sectionPrompt(
+      `<h1>Objectifs business & SEO</h1> — objectifs chiffrés (6 mois, 1 an), KPIs à tracker, budget marketing/digital, canaux d'acquisition actuels et souhaités, mots-clés stratégiques, objectifs SEO spécifiques, stack technique. CHAQUE chiffre mentionné doit apparaître.`,
+      project, conv, summaries),
+  },
+  {
+    id: 'contenus',
+    label: 'Contenus & Contraintes',
+    prompt: (project, conv, summaries) => sectionPrompt(
+      `<h1>Contenus & Storytelling</h1> — histoires marquantes, témoignages, cas d'usage, contenu existant réutilisable, stratégie éditoriale, blog/articles prévus, fréquence de publication.
+<h1>Éléments existants & Contraintes</h1> — site actuel (ce qui marche/marche pas), CMS, hébergement, intégrations, outils tiers, budget et délais pour la refonte.`,
+      project, conv, summaries),
+  },
+  {
+    id: 'recommandations',
+    label: 'Recommandations & Prochaines étapes',
+    prompt: (project, conv, summaries) => sectionPrompt(
+      `<h1>Données SEO complémentaires</h1> — données SERP et analyses de sites collectées pendant le briefing, structurées en tableaux.
+<h1>Recommandations stratégiques</h1> — recommandations concrètes et actionnables classées par priorité. Chaque recommandation justifiée par un élément du briefing.
+<h1>Prochaines étapes</h1> — roadmap suggérée avec étapes concrètes, livrables attendus et timeline indicative.`,
+      project, conv, summaries),
   },
 ];
 
@@ -262,7 +300,7 @@ export async function POST(request) {
       return buildDocResponse(htmlContent, project, format);
     }
 
-    return NextResponse.json({ error: 'Paramètre "part" requis (0, 1 ou 2)' }, { status: 400 });
+    return NextResponse.json({ error: 'Paramètre "part" requis (0 à 9)' }, { status: 400 });
   } catch (err) {
     console.error('Export API error:', err);
 
