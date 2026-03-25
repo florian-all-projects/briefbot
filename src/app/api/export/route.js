@@ -27,7 +27,7 @@ function truncateConversation(messages) {
     .map(m => `${m.role === "user" ? (m.mode === "consultant" ? "CONSULTANT" : "CLIENT") : "BRIEFBOT"}: ${m.content}`)
     .join("\n\n");
 
-  const MAX = 25000;
+  const MAX = 40000;
   if (text.length > MAX) {
     const keepStart = Math.floor(MAX * 0.4);
     const keepEnd = Math.floor(MAX * 0.5);
@@ -43,7 +43,7 @@ const SECTIONS = [
   {
     id: 'part1',
     label: 'Partie 1/3',
-    prompt: (project, conv) => `Tu es un expert en rédaction de briefs stratégiques. Génère en HTML les sections suivantes du document de briefing à partir de la conversation.
+    prompt: (project, conv, summaries) => `Tu es un expert en rédaction de briefs stratégiques. Génère en HTML les sections suivantes du document de briefing à partir de la conversation.
 
 GÉNÈRE UNIQUEMENT ces sections (HTML pur, pas de balises html/head/body) :
 1. <h1>Page de garde</h1> — nom du projet "${project.name}", client "${project.client_name}", date "${new Date().toISOString().slice(0, 10)}", URL "${project.url || 'Non renseigné'}"
@@ -54,15 +54,15 @@ GÉNÈRE UNIQUEMENT ces sections (HTML pur, pas de balises html/head/body) :
 6. <h1>Cibles & Personas</h1> — fiches personas détaillées. Chaque segment avec profil, motivations, freins, part de CA.
 
 RÈGLES : Sois EXHAUSTIF. Reprends CHAQUE info, chiffre, nom de la conversation. Cite le client entre guillemets. Français uniquement. Utilise h1, h2, h3, p, table, ul, blockquote, strong.
-
-${project.context ? `Contexte initial : ${project.context.substring(0, 1500)}\n` : ""}
+${summaries}
+${project.context ? `Contexte initial : ${project.context.substring(0, 8000)}\n` : ""}
 Conversation :
 ${conv}`,
   },
   {
     id: 'part2',
     label: 'Partie 2/3',
-    prompt: (project, conv) => `Tu es un expert en rédaction de briefs stratégiques. Génère en HTML les sections suivantes du document de briefing à partir de la conversation.
+    prompt: (project, conv, summaries) => `Tu es un expert en rédaction de briefs stratégiques. Génère en HTML les sections suivantes du document de briefing à partir de la conversation.
 
 GÉNÈRE UNIQUEMENT ces sections (HTML pur) :
 7. <h1>Concurrence & Mots-clés</h1> — TOUS les concurrents mentionnés (noms, URLs), TOUS les mots-clés, zone géographique, résultats SERP si mentionnés.
@@ -72,15 +72,15 @@ GÉNÈRE UNIQUEMENT ces sections (HTML pur) :
 11. <h1>Objectifs business & SEO</h1> — objectifs chiffrés, KPIs, budget, canaux, mots-clés stratégiques.
 
 RÈGLES : Sois EXHAUSTIF. Reprends CHAQUE info, chiffre, nom. Cite le client. Français uniquement.
-
-${project.context ? `Contexte initial : ${project.context.substring(0, 1500)}\n` : ""}
+${summaries}
+${project.context ? `Contexte initial : ${project.context.substring(0, 8000)}\n` : ""}
 Conversation :
 ${conv}`,
   },
   {
     id: 'part3',
     label: 'Partie 3/3',
-    prompt: (project, conv) => `Tu es un expert en rédaction de briefs stratégiques. Génère en HTML les sections suivantes du document de briefing à partir de la conversation.
+    prompt: (project, conv, summaries) => `Tu es un expert en rédaction de briefs stratégiques. Génère en HTML les sections suivantes du document de briefing à partir de la conversation.
 
 GÉNÈRE UNIQUEMENT ces sections (HTML pur) :
 12. <h1>Contenus & Storytelling</h1> — histoires marquantes, témoignages, cas d'usage, contenu existant, stratégie éditoriale.
@@ -92,8 +92,8 @@ GÉNÈRE UNIQUEMENT ces sections (HTML pur) :
 Si une section n'a pas été abordée : "⚠️ Section non abordée — À compléter".
 
 RÈGLES : Sois EXHAUSTIF. Reprends CHAQUE info. Cite le client. Français uniquement.
-
-${project.context ? `Contexte initial : ${project.context.substring(0, 1500)}\n` : ""}
+${summaries}
+${project.context ? `Contexte initial : ${project.context.substring(0, 8000)}\n` : ""}
 Conversation :
 ${conv}`,
   },
@@ -207,14 +207,23 @@ export async function POST(request) {
 
     const conversationText = truncateConversation(messages);
 
+    // Construire le bloc des résumés de phases pour l'export
+    const summaries = project.phase_summaries || {};
+    const summaryBlock = Object.keys(summaries).length > 0
+      ? '\n\nRÉSUMÉS DES PHASES (source fiable — prioritaire sur la conversation) :\n' +
+        Object.keys(summaries).sort((a, b) => Number(a) - Number(b)).map(phaseId => {
+          return `## Phase ${phaseId}\n${summaries[phaseId]}`;
+        }).join('\n\n')
+      : '';
+
     // ── Mode multi-part : générer une seule section ──
     if (part !== undefined && part >= 0 && part < SECTIONS.length) {
       const section = SECTIONS[part];
-      const prompt = section.prompt(project, conversationText);
+      const prompt = section.prompt(project, conversationText, summaryBlock);
 
       const response = await callWithRetry({
         model: 'claude-sonnet-4-6',
-        max_tokens: 4000,
+        max_tokens: 8000,
         messages: [{ role: 'user', content: prompt }],
       });
 
@@ -227,9 +236,9 @@ export async function POST(request) {
       const outputTokens = response.usage?.output_tokens || 0;
       const cacheWrite = response.usage?.cache_creation_input_tokens || 0;
       const cacheRead = response.usage?.cache_read_input_tokens || 0;
-      const regularInput = Math.max(0, inputTokens - cacheWrite - cacheRead);
-      // Pricing Sonnet : $3/M input, $3.75/M cache write, $0.30/M cache read, $15/M output
-      const costMicro = Math.round(regularInput * 3 + cacheWrite * 3.75 + cacheRead * 0.30 + outputTokens * 15);
+      // Pricing Sonnet 4.6 : $3/M input, $3.75/M cache write, $0.30/M cache read, $15/M output
+      // input_tokens est indépendant des cache tokens (voir doc Anthropic)
+      const costMicro = Math.round(inputTokens * 3 + cacheWrite * 3.75 + cacheRead * 0.30 + outputTokens * 15);
 
       await sb.rpc('increment_project_cost', { project_id: projectId, amount: costMicro });
       await sb.rpc('increment_project_tokens', { project_id: projectId, amount: inputTokens + outputTokens });
