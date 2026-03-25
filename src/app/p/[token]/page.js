@@ -73,7 +73,9 @@ export default function ClientPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               projectId: proj.id,
-              message: `Bonjour ! Je suis prêt à commencer le briefing pour ${proj.client_name}.`,
+              message: proj.context
+                ? `Bonjour ! Je suis prêt à commencer le briefing pour ${proj.client_name}. Un contexte initial a été fourni par le consultant — analyse-le et identifie les phases déjà couvertes avant de commencer.`
+                : `Bonjour ! Je suis prêt à commencer le briefing pour ${proj.client_name}.`,
               mode: 'client',
             }),
           });

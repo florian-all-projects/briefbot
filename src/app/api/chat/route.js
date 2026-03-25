@@ -253,9 +253,13 @@ export async function POST(request) {
     let loopMessages = [...apiMessages];
     let maxIterations = 5;
 
+    // Plus de tokens pour le premier message avec contexte initial (analyse des phases)
+    const isFirstWithContext = allMessages.length <= 2 && project.context;
+    const maxTokens = isFirstWithContext ? 4000 : 1500;
+
     let response = await callAnthropicWithRetry({
       model: CHAT_MODEL,
-      max_tokens: 1500,
+      max_tokens: maxTokens,
       system: [
         {
           type: 'text',

@@ -127,7 +127,9 @@ export default function Chat({ project: initialProject, initialMessages, mode: d
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           projectId: project.id,
-          message: 'Bonjour ! Je suis prêt à commencer le briefing pour ' + project.client_name + '.',
+          message: project.context
+            ? `Bonjour ! Je suis prêt à commencer le briefing pour ${project.client_name}. Un contexte initial a été fourni par le consultant — analyse-le et identifie les phases déjà couvertes avant de commencer.`
+            : `Bonjour ! Je suis prêt à commencer le briefing pour ${project.client_name}.`,
           mode,
         }),
       });

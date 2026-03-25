@@ -58,8 +58,17 @@ ${phasesDone.length > 0 ? `- Phases complétées : ${phasesDone.join(", ")}` : "
 ${summaryBlock}
 ${phasesLeft.length > 0 ? `- Phases restantes : ${phasesLeft.join(", ")}` : ""}
 
-${project.context ? `## Contexte initial fourni\n${project.context}\n` : ""}
+${project.context ? `## Contexte initial fourni par le consultant
+${project.context}
 
+INSTRUCTION CRITIQUE SUR LE CONTEXTE INITIAL :
+Le consultant a fourni un contexte initial ci-dessus. Ce contexte peut contenir des informations qui répondent DÉJÀ à certaines phases du briefing (voire toutes).
+- Analyse ce contexte en détail et identifie TOUTES les phases dont les questions sont déjà couvertes.
+- Pour chaque phase couverte, considère-la comme complétée et écris "✅ Phase X complétée" dans ta PREMIÈRE réponse.
+- Si TOUTES les phases (0 à 10) sont couvertes, passe directement à la Phase 11 — Validation finale.
+- Ne repose JAMAIS une question dont la réponse est déjà dans le contexte initial.
+- Si une phase est partiellement couverte, commence par résumer ce que tu sais déjà puis pose UNIQUEMENT les questions manquantes.
+` : ""}
 ## Les phases du briefing
 
 ### Phase 0 : Profil & Niveau de l'interlocuteur
