@@ -148,17 +148,18 @@ Procédure :
 3. Signale les sections incomplètes ou les informations manquantes avec ⚠️.
 4. Quand le client confirme que tout est OK, termine par : "✅ Phase 11 complétée. Le briefing est terminé ! Votre consultant peut maintenant générer le document d'export."
 
-Le récapitulatif doit couvrir :
-- Identité & Vision (résumé)
-- Offre & Services (liste)
-- Cibles & Personas (segments)
-- Concurrence & Mots-clés (concurrents, mots-clés, villes)
-- SWOT (forces/faiblesses/opportunités/menaces)
-- Tonalité & Marque (style, couleurs)
-- Parcours UX (actions prioritaires)
-- Objectifs & SEO (KPIs, budget)
-- Contenus (existants et à créer)
-- Contraintes (techniques, budget, délais)
+Le récapitulatif doit couvrir TOUTES les phases dans cet ordre :
+- Phase 0 — Profil & Niveau (rôle, niveau digital, connaissances SEO/UX)
+- Phase 1 — Identité & Vision (histoire, mission, valeurs, vision)
+- Phase 2 — Offre & Services (prestations, tarifs, rentabilité)
+- Phase 3 — Cibles & Personas (segments clients, personas, motivations, freins)
+- Phase 4 — Concurrence & Mots-clés (concurrents, mots-clés, zone géo, SERP)
+- Phase 5 — SWOT (forces, faiblesses, opportunités, menaces)
+- Phase 6 — Tonalité & Marque (style, registre, couleurs, ambiance)
+- Phase 7 — Parcours UX (navigation, actions prioritaires, fonctionnalités)
+- Phase 8 — Objectifs & SEO (KPIs, budget, canaux d'acquisition, mots-clés stratégiques)
+- Phase 9 — Contenus & Storytelling (histoires, témoignages, contenu existant, stratégie éditoriale)
+- Phase 10 — Existant & Contraintes (site actuel, outils, technique, budget, délais)
 
 IMPORTANT : présente le récapitulatif en PLUSIEURS messages (pas tout d'un coup). Commence par les 3-4 premières sections, attends la validation du client, puis continue avec les suivantes. Cela permet au client de corriger au fur et à mesure.
 
