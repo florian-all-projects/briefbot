@@ -20,23 +20,35 @@ const COST_CACHE_READ_MICRO = 0.08;  // $0.08/M — lecture cache
 const COST_OUTPUT_MICRO = 4;         // $4/M — output
 
 function calculateCostMicro(usage) {
+  // Selon la doc Anthropic, les champs usage sont INDÉPENDANTS :
+  // - input_tokens : tokens après le dernier cache breakpoint (non-cachés)
+  // - cache_creation_input_tokens : tokens écrits dans le cache
+  // - cache_read_input_tokens : tokens lus depuis le cache
+  // Chacun doit être facturé à son propre tarif, sans soustraction.
   const inputTokens = usage?.input_tokens || 0;
   const outputTokens = usage?.output_tokens || 0;
   const cacheWriteTokens = usage?.cache_creation_input_tokens || 0;
   const cacheReadTokens = usage?.cache_read_input_tokens || 0;
-  // Les tokens d'input "normaux" = total input - cache write - cache read
-  const regularInputTokens = Math.max(0, inputTokens - cacheWriteTokens - cacheReadTokens);
 
   return Math.round(
-    regularInputTokens * COST_INPUT_MICRO +
+    inputTokens * COST_INPUT_MICRO +
     cacheWriteTokens * COST_CACHE_WRITE_MICRO +
     cacheReadTokens * COST_CACHE_READ_MICRO +
     outputTokens * COST_OUTPUT_MICRO
   );
 }
 
-// Nombre max de messages récents à envoyer (phase en cours uniquement)
-const MAX_RECENT_MESSAGES = 16;
+// Budget tokens pour les messages récents (hors system prompt)
+// Haiku 4.5 = 200K tokens context window. Pas de contrainte de taille.
+// On limite l'historique pour contrôler le COÛT (input tokens facturés).
+// System prompt + résumés ≈ 2000-5000 tokens selon les phases complétées.
+// ~10 000 tokens d'historique ≈ ~0.008$ par message (input Haiku = $0.80/M)
+const MAX_HISTORY_TOKENS = 10000;
+
+// Estimation grossière : 1 token ≈ 4 caractères en français
+function estimateTokens(text) {
+  return Math.ceil((text || '').length / 4);
+}
 
 // ── Retry avec exponential backoff ──
 async function callAnthropicWithRetry(params, maxRetries = 3) {
@@ -55,44 +67,51 @@ async function callAnthropicWithRetry(params, maxRetries = 3) {
   }
 }
 
-// ── Construire les messages avec résumés des phases précédentes ──
-function buildSmartMessages(allMessages, phaseSummaries) {
-  const summaries = phaseSummaries || {};
-  const summaryKeys = Object.keys(summaries).sort((a, b) => Number(a) - Number(b));
+// ── Sélectionner les messages récents en respectant un budget de tokens ──
+// On prend les messages les plus récents jusqu'à remplir le budget.
+function selectRecentByTokens(messages, maxTokens) {
+  const selected = [];
+  let totalTokens = 0;
 
-  // S'il y a des résumés de phases, on les injecte comme contexte
-  // puis on ne garde que les messages récents
-  if (summaryKeys.length > 0) {
-    const summaryText = summaryKeys
-      .map(phaseId => {
-        const phaseName = PHASES.find(p => p.id === Number(phaseId))?.name || `Phase ${phaseId}`;
-        return `## Résumé Phase ${phaseId} — ${phaseName}\n${summaries[phaseId]}`;
-      })
-      .join('\n\n');
-
-    const contextMessage = {
-      role: 'user',
-      content: `[CONTEXTE — Résumés des phases précédentes. Ces informations ont déjà été collectées, NE PAS reposer ces questions.]\n\n${summaryText}\n\n[FIN DU CONTEXTE — Continue la conversation à partir d'ici.]`,
-    };
-
-    // Garder seulement les messages récents (phase en cours)
-    const recentMessages = allMessages.slice(-MAX_RECENT_MESSAGES);
-
-    return [contextMessage, ...recentMessages];
+  // Parcourir du plus récent au plus ancien
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msgTokens = estimateTokens(messages[i].content);
+    if (totalTokens + msgTokens > maxTokens && selected.length > 0) break;
+    selected.unshift(messages[i]);
+    totalTokens += msgTokens;
   }
 
-  // Pas de résumés encore → garder les messages classiques (tronqués si besoin)
-  if (allMessages.length <= MAX_RECENT_MESSAGES + 4) return allMessages;
+  return { selected, totalTokens, skipped: messages.length - selected.length };
+}
 
-  const start = allMessages.slice(0, 4);
-  const end = allMessages.slice(-MAX_RECENT_MESSAGES);
-  const skipped = allMessages.length - 4 - MAX_RECENT_MESSAGES;
+// ── Construire les messages avec budget tokens ──
+// Les résumés de phases sont déjà injectés dans le system prompt (summaryBlock).
+// Ici on gère uniquement l'historique de conversation récent + note de reprise.
+function buildSmartMessages(allMessages, phaseSummaries, isReturningSession = false) {
+  // Note de reprise de session si le client revient après une pause
+  const returningMessage = isReturningSession
+    ? [{
+        role: 'user',
+        content: `[NOTE SYSTÈME : Le client revient après une pause (heures/jours). Accueille-le brièvement en lui rappelant où vous en étiez et sur quelle phase vous allez continuer. Ne refais PAS tout le résumé, juste 1-2 phrases de contexte. Les résumés des phases sont dans tes instructions système.]`,
+      }]
+    : [];
 
-  return [
-    ...start,
-    { role: 'user', content: `[${skipped} messages omis — les informations clés sont dans les résumés de phase quand disponibles.]` },
-    ...end,
-  ];
+  // Calculer le budget restant après la note de reprise
+  const returningTokens = returningMessage.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+  const availableTokens = MAX_HISTORY_TOKENS - returningTokens;
+
+  // Sélectionner les messages récents qui tiennent dans le budget
+  const { selected, skipped } = selectRecentByTokens(allMessages, availableTokens);
+
+  if (skipped > 0) {
+    const skipMessage = {
+      role: 'user',
+      content: `[${skipped} messages précédents omis — les informations clés sont dans les résumés de phase dans les instructions système.]`,
+    };
+    return [...returningMessage, skipMessage, ...selected];
+  }
+
+  return [...returningMessage, ...selected];
 }
 
 // ── Générer un résumé de phase (appel léger) ──
@@ -100,7 +119,7 @@ async function generatePhaseSummary(sb, projectId, phaseId, allMessages) {
   const phaseName = PHASES.find(p => p.id === phaseId)?.name || `Phase ${phaseId}`;
 
   // Prendre les derniers messages pertinents (ceux de cette phase)
-  const recentConv = allMessages.slice(-30)
+  const recentConv = allMessages.slice(-50)
     .map(m => `${m.role === 'user' ? 'CLIENT' : 'BRIEFBOT'}: ${m.content}`)
     .join('\n');
 
@@ -117,6 +136,7 @@ RÈGLES :
 - Format : bullet points concis mais exhaustifs
 - Ne mets PAS de commentaires ou recommandations, uniquement les FAITS collectés
 - Si le client a donné un chiffre ou un nom, il DOIT apparaître
+- Si le client a CORRIGÉ une information précédemment donnée, utilise la version CORRIGÉE (la plus récente)
 - Français uniquement
 
 Conversation récente :
@@ -203,18 +223,26 @@ export async function POST(request) {
     // Récupérer l'historique
     const { data: history } = await sb
       .from('messages')
-      .select('role, content')
+      .select('role, content, created_at')
       .eq('project_id', projectId)
       .order('created_at', { ascending: true });
 
     const allMessages = (history || []).map(m => ({
       role: m.role,
       content: m.content,
+      created_at: m.created_at,
     }));
+
+    // Détecter si c'est une reprise de session (dernier message > 1h)
+    const previousMessages = allMessages.slice(0, -1); // sans le message qu'on vient d'insérer
+    const lastMsgTime = previousMessages.length > 0
+      ? new Date(previousMessages[previousMessages.length - 1].created_at).getTime()
+      : null;
+    const isReturningSession = lastMsgTime && (Date.now() - lastMsgTime > 60 * 60 * 1000);
 
     // Construire les messages intelligemment :
     // résumés des phases complétées + messages récents uniquement
-    const apiMessages = buildSmartMessages(allMessages, project.phase_summaries);
+    const apiMessages = buildSmartMessages(allMessages, project.phase_summaries, isReturningSession);
 
     const systemPrompt = buildSystemPrompt(project, mode || 'client');
 
@@ -343,6 +371,16 @@ export async function POST(request) {
       }
     }
 
+    // Si le client fait des corrections sur une phase déjà complétée,
+    // régénérer le résumé pour intégrer les nouvelles infos
+    if (!phaseMatch && phaseIndicator) {
+      const indicatedPhase = parseInt(phaseIndicator[1]);
+      if (updatedPhases.includes(indicatedPhase)) {
+        generatePhaseSummary(sb, projectId, indicatedPhase, allMessages)
+          .catch(err => console.error('[Phase Summary] Background re-summary error:', err));
+      }
+    }
+
     // Si l'IA confirme qu'une phase est déjà complétée (revisitée),
     // s'assurer qu'elle est bien dans phases_completed
     const alreadyDoneMatch = aiText.match(/[Pp]hase\s*(\d+).*(?:déjà complétée|déjà été couverte|déjà abordée|déjà collecté)/);
@@ -350,6 +388,24 @@ export async function POST(request) {
       const doneId = parseInt(alreadyDoneMatch[1]);
       if (!updatedPhases.includes(doneId)) {
         updatedPhases.push(doneId);
+      }
+    }
+
+    // Résumé intermédiaire : si la phase en cours n'est pas complétée
+    // et que la conversation dépasse le budget tokens, générer un résumé provisoire
+    // pour ne pas perdre d'infos quand la fenêtre tronque les vieux messages
+    const totalHistoryTokens = allMessages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+    if (!phaseMatch && totalHistoryTokens > MAX_HISTORY_TOKENS) {
+      const existingSummaries = project.phase_summaries || {};
+      const currentPhaseId = newCurrentPhase;
+      if (!existingSummaries[String(currentPhaseId)]) {
+        // Pas encore de résumé pour cette phase → en générer un
+        generatePhaseSummary(sb, projectId, currentPhaseId, allMessages)
+          .catch(err => console.error('[Phase Summary] Background interim summary error:', err));
+      } else if (totalHistoryTokens > MAX_HISTORY_TOKENS * 2) {
+        // Le résumé existe mais la conversation a beaucoup grandi → régénérer
+        generatePhaseSummary(sb, projectId, currentPhaseId, allMessages)
+          .catch(err => console.error('[Phase Summary] Background re-summary error:', err));
       }
     }
 
@@ -366,6 +422,8 @@ export async function POST(request) {
 
     return NextResponse.json({
       content: aiText,
+      current_phase: newCurrentPhase,
+      phases_completed: updatedPhases,
       cost_usd: actualCostMicro / 1000000,
       budget_usd: budget / 1000000,
       cost_this_message_usd: totalCostMicro / 1000000,

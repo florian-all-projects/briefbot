@@ -52,28 +52,45 @@ function MessageBubble({ message }) {
 }
 
 // ─── Phase Chip ───
-function PhaseChip({ phase, isActive, isComplete, onClick }) {
+function PhaseChip({ phase, isActive, isComplete, onClick, onToggleComplete, isConsultant }) {
+  const clickable = isConsultant && onClick;
+
   return (
-    <button
-      onClick={onClick}
-      className={`w-full text-left px-3 py-2.5 rounded-lg transition-all duration-200 flex items-center gap-2.5 group ${
-        isActive
-          ? 'bg-amber-50 border border-amber-300 shadow-sm'
-          : isComplete
-          ? 'bg-emerald-50/60 border border-emerald-200 hover:bg-emerald-50'
-          : 'bg-white/60 border border-slate-200 hover:bg-slate-50 hover:border-slate-300'
-      }`}
-    >
-      <span className="text-lg flex-shrink-0">{isComplete ? '✅' : phase.icon}</span>
-      <div className="min-w-0">
-        <div className={`text-xs font-semibold truncate ${
-          isActive ? 'text-amber-800' : isComplete ? 'text-emerald-700' : 'text-slate-700'
-        }`}>
-          {phase.name}
+    <div className={`w-full text-left px-3 py-2.5 rounded-lg transition-all duration-200 flex items-center gap-2.5 group ${
+      isActive
+        ? 'bg-amber-50 border border-amber-300 shadow-sm'
+        : isComplete
+        ? 'bg-emerald-50/60 border border-emerald-200' + (clickable ? ' hover:bg-emerald-50' : '')
+        : 'bg-white/60 border border-slate-200' + (clickable ? ' hover:bg-slate-50 hover:border-slate-300' : '')
+    } ${clickable ? 'cursor-pointer' : 'cursor-default'}`}>
+      <div
+        onClick={clickable ? onClick : undefined}
+        className="flex items-center gap-2.5 flex-1 min-w-0"
+      >
+        <span className="text-lg flex-shrink-0">{isComplete ? '✅' : phase.icon}</span>
+        <div className="min-w-0">
+          <div className={`text-xs font-semibold truncate ${
+            isActive ? 'text-amber-800' : isComplete ? 'text-emerald-700' : 'text-slate-700'
+          }`}>
+            {phase.name}
+          </div>
+          <div className="text-[10px] text-slate-400 truncate">{phase.desc}</div>
         </div>
-        <div className="text-[10px] text-slate-400 truncate">{phase.desc}</div>
       </div>
-    </button>
+      {isConsultant && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleComplete(); }}
+          title={isComplete ? 'Marquer comme non complétée' : 'Valider cette phase'}
+          className={`flex-shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-xs transition-all opacity-0 group-hover:opacity-100 ${
+            isComplete
+              ? 'bg-emerald-200 text-emerald-700 hover:bg-red-100 hover:text-red-600'
+              : 'bg-slate-200 text-slate-500 hover:bg-emerald-100 hover:text-emerald-600'
+          }`}
+        >
+          {isComplete ? '↩' : '✓'}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -151,14 +168,12 @@ export default function Chat({ project: initialProject, initialMessages, mode: d
       const aiMsg = { role: 'assistant', content: data.content, mode, created_at: new Date().toISOString() };
       setMessages(prev => [...prev, aiMsg]);
 
-      // Update phase detection
-      const phaseMatch = data.content.match(/✅\s*Phase\s*(\d+)/);
-      if (phaseMatch) {
-        const completedId = parseInt(phaseMatch[1]);
+      // Sync phase state from server (source of truth)
+      if (data.current_phase !== undefined || data.phases_completed) {
         setProject(prev => ({
           ...prev,
-          phases_completed: [...new Set([...(prev.phases_completed || []), completedId])],
-          current_phase: Math.min(completedId + 1, 11),
+          ...(data.current_phase !== undefined && { current_phase: data.current_phase }),
+          ...(data.phases_completed && { phases_completed: data.phases_completed }),
         }));
       }
     } catch (e) {
@@ -200,6 +215,25 @@ export default function Chat({ project: initialProject, initialMessages, mode: d
       setError('Erreur : ' + e.message);
     }
     setLoading(false);
+  };
+
+  const togglePhaseComplete = async (phaseId) => {
+    const isComplete = (project.phases_completed || []).includes(phaseId);
+    const action = isComplete ? 'uncomplete' : 'complete';
+
+    try {
+      const res = await fetch('/api/projects/phase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: project.id, phaseId, action }),
+      });
+      const data = await res.json();
+      if (data.phases_completed) {
+        setProject(prev => ({ ...prev, phases_completed: data.phases_completed }));
+      }
+    } catch (e) {
+      console.error('Error toggling phase:', e);
+    }
   };
 
   const currentPhase = PHASES.find(p => p.id === (project.current_phase ?? 0));
@@ -255,6 +289,8 @@ export default function Chat({ project: initialProject, initialMessages, mode: d
                 isActive={(project.current_phase ?? 0) === phase.id}
                 isComplete={(project.phases_completed || []).includes(phase.id)}
                 onClick={() => goToPhase(phase.id)}
+                onToggleComplete={() => togglePhaseComplete(phase.id)}
+                isConsultant={showModeToggle}
               />
             ))}
           </div>
