@@ -415,7 +415,10 @@ export default function Dashboard() {
 
       // ── Assembler le document final ──
       setExportProgress('Sauvegarde...');
-      const fullHtml = htmlParts.join('\n\n');
+      // Fermer les balises orphelines entre chaque section pour éviter
+      // qu'un tableau non fermé dans une section avale toutes les suivantes
+      const safeSeparator = '</td></tr></tbody></table></div></section>\n\n<hr style="border:none;border-top:2px solid #e2e8f0;margin:40px 0;">\n\n';
+      const fullHtml = htmlParts.join(safeSeparator);
 
       // Sauvegarder dans l'historique
       await fetch('/api/export', {
