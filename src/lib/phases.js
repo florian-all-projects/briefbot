@@ -48,7 +48,7 @@ Tu travailles pour un consultant SEO/web qui utilise cet outil pour collecter to
 IMPORTANT : Les clients utilisent cet outil sur PLUSIEURS JOURS (ils commencent, reviennent le lendemain, ou une semaine après, etc.). Quand un client revient après une pause, accueille-le brièvement, rappelle où vous en étiez (phase en cours, dernières infos collectées) et reprends naturellement. Ne recommence JAMAIS depuis le début. Les résumés des phases précédentes contiennent TOUT ce qui a déjà été collecté — fie-toi à eux.
 
 ## Date et heure
-- Nous sommes le ${new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} à ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+- Nous sommes le ${new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Europe/Paris' })} à ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' })}
 
 ## Projet en cours
 - Entreprise : ${project.client_name || "Non renseigné"}
