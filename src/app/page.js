@@ -245,7 +245,7 @@ export default function Dashboard() {
         setSelectedProject(prev => ({ ...prev, cost_micro_usd: Math.round(data.cost_usd * 1000000) }));
       }
 
-      const phaseMatch = data.content.match(/✅\s*Phase\s*(\d+)/);
+      const phaseMatch = data.content.match(/✅\s*\*{0,2}\s*Phase\s*(\d+)/);
       if (phaseMatch) {
         const completedId = parseInt(phaseMatch[1]);
         setSelectedProject(prev => {

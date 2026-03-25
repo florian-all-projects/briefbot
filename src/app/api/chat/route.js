@@ -342,7 +342,7 @@ export async function POST(request) {
     });
 
     // Détecter la complétion de phase → capturer TOUTES les phases complétées
-    const phaseMatches = [...aiText.matchAll(/✅\s*Phase\s*(\d+)/g)];
+    const phaseMatches = [...aiText.matchAll(/✅\s*\*{0,2}\s*Phase\s*(\d+)/g)];
     const currentPhases = project.phases_completed || [];
     let updatedPhases = [...currentPhases];
     let newCurrentPhase = project.current_phase ?? 0;
