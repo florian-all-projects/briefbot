@@ -122,46 +122,14 @@ export default function ClientPage() {
       const aiMsg = { role: 'assistant', content: data.content, mode: 'client', created_at: new Date().toISOString() };
       setMessages(prev => [...prev, aiMsg]);
 
-      // Update phase
-      const phaseMatch = data.content.match(/✅\s*Phase\s*(\d+)/);
-      if (phaseMatch) {
-        const completedId = parseInt(phaseMatch[1]);
+      // Sync phase state from server (source of truth)
+      if (data.current_phase !== undefined || data.phases_completed) {
         setProject(prev => ({
           ...prev,
-          phases_completed: [...new Set([...(prev.phases_completed || []), completedId])],
-          current_phase: Math.min(completedId + 1, 11),
+          ...(data.current_phase !== undefined && { current_phase: data.current_phase }),
+          ...(data.phases_completed && { phases_completed: data.phases_completed }),
         }));
       }
-    } catch (e) {
-      setError('Erreur : ' + e.message);
-    }
-    setChatLoading(false);
-  };
-
-  const goToPhase = async (phaseId) => {
-    if (chatLoading) return;
-    await fetch('/api/projects/phase', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId: project.id, phaseId }),
-    });
-    setProject(prev => ({ ...prev, current_phase: phaseId }));
-
-    const phaseName = PHASES.find(p => p.id === phaseId)?.name;
-    const msg = `Je souhaite maintenant travailler sur la Phase ${phaseId} — ${phaseName}.`;
-    const userMsg = { role: 'user', content: msg, mode: 'client', created_at: new Date().toISOString() };
-    setMessages(prev => [...prev, userMsg]);
-    setChatLoading(true);
-
-    try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: project.id, message: msg, mode: 'client' }),
-      });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setMessages(prev => [...prev, { role: 'assistant', content: data.content, mode: 'client', created_at: new Date().toISOString() }]);
     } catch (e) {
       setError('Erreur : ' + e.message);
     }
@@ -211,15 +179,14 @@ export default function ClientPage() {
           <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">Progression</label>
             {PHASES.map(phase => (
-              <button
+              <div
                 key={phase.id}
-                onClick={() => goToPhase(phase.id)}
-                className={`w-full text-left px-3 py-2 rounded-lg transition-all flex items-center gap-2 ${
+                className={`w-full text-left px-3 py-2 rounded-lg flex items-center gap-2 cursor-default ${
                   (project.current_phase ?? 0) === phase.id
                     ? 'bg-amber-50 border border-amber-300'
                     : (project.phases_completed || []).includes(phase.id)
-                    ? 'bg-emerald-50/60 border border-emerald-200 hover:bg-emerald-50'
-                    : 'bg-white/60 border border-slate-200 hover:bg-slate-50'
+                    ? 'bg-emerald-50/60 border border-emerald-200'
+                    : 'bg-white/60 border border-slate-200'
                 }`}
               >
                 <span className="text-base">{(project.phases_completed || []).includes(phase.id) ? '✅' : phase.icon}</span>
@@ -230,7 +197,7 @@ export default function ClientPage() {
                   }`}>{phase.name}</div>
                   <div className="text-[10px] text-slate-400 truncate">{phase.desc}</div>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
 
