@@ -408,6 +408,8 @@ export default function Dashboard() {
         }
 
         if (!partHtml) throw new Error(`Partie ${part + 1} : aucun contenu généré.`);
+        // Nettoyer les code fences markdown que Claude ajoute parfois
+        partHtml = partHtml.replace(/```html\s*/gi, '').replace(/```\s*/g, '').trim();
         htmlParts.push(partHtml);
       }
 

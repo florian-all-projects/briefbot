@@ -52,6 +52,8 @@ RÈGLES :
 - Cite le client entre guillemets quand pertinent.
 - Français uniquement.
 - Utilise h1, h2, h3, p, table, ul, blockquote, strong.
+- IMPORTANT : Génère UNIQUEMENT du HTML brut. PAS de blocs markdown (\`\`\`html ou \`\`\`). PAS de commentaires. Commence directement par la première balise HTML.
+- Assure-toi que TOUTES les balises HTML sont correctement fermées (notamment </table>, </tr>, </td>). Un tableau non fermé casserait tout le reste du document.
 - Si la section n'a pas été abordée : "⚠️ Section non abordée — À compléter".
 ${summaries}
 ${project.context ? `\nContexte initial :\n${project.context.substring(0, 8000)}\n` : ""}
