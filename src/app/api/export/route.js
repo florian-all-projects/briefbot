@@ -256,38 +256,59 @@ export async function POST(request) {
         }).join('\n\n')
       : '';
 
-    // ── Mode multi-part : générer une seule section ──
+    // ── Mode multi-part : générer une seule section en streaming ──
     if (part !== undefined && part >= 0 && part < SECTIONS.length) {
       const section = SECTIONS[part];
       const prompt = section.prompt(project, conversationText, summaryBlock);
 
-      const response = await callWithRetry({
+      const stream = anthropic.messages.stream({
         model: 'claude-sonnet-4-6',
         max_tokens: 8000,
         messages: [{ role: 'user', content: prompt }],
       });
 
-      const html = response.content
-        .filter(b => b.type === 'text')
-        .map(b => b.text)
-        .join('\n');
+      const encoder = new TextEncoder();
 
-      const inputTokens = response.usage?.input_tokens || 0;
-      const outputTokens = response.usage?.output_tokens || 0;
-      const cacheWrite = response.usage?.cache_creation_input_tokens || 0;
-      const cacheRead = response.usage?.cache_read_input_tokens || 0;
-      // Pricing Sonnet 4.6 : $3/M input, $3.75/M cache write, $0.30/M cache read, $15/M output
-      // input_tokens est indépendant des cache tokens (voir doc Anthropic)
-      const costMicro = Math.round(inputTokens * 3 + cacheWrite * 3.75 + cacheRead * 0.30 + outputTokens * 15);
+      const readable = new ReadableStream({
+        async start(controller) {
+          try {
+            // Envoyer les métadonnées en premier
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'meta', part, total_parts: SECTIONS.length, label: section.label })}\n\n`));
 
-      await sb.rpc('increment_project_cost', { project_id: projectId, amount: costMicro });
-      await sb.rpc('increment_project_tokens', { project_id: projectId, amount: inputTokens + outputTokens });
+            // Streamer les chunks de texte
+            stream.on('text', (text) => {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', text })}\n\n`));
+            });
 
-      return NextResponse.json({
-        html,
-        part,
-        total_parts: SECTIONS.length,
-        label: section.label,
+            // Attendre la fin du stream
+            const finalMessage = await stream.finalMessage();
+
+            // Calculer et enregistrer les coûts
+            const inputTokens = finalMessage.usage?.input_tokens || 0;
+            const outputTokens = finalMessage.usage?.output_tokens || 0;
+            const cacheWrite = finalMessage.usage?.cache_creation_input_tokens || 0;
+            const cacheRead = finalMessage.usage?.cache_read_input_tokens || 0;
+            const costMicro = Math.round(inputTokens * 3 + cacheWrite * 3.75 + cacheRead * 0.30 + outputTokens * 15);
+
+            await sb.rpc('increment_project_cost', { project_id: projectId, amount: costMicro });
+            await sb.rpc('increment_project_tokens', { project_id: projectId, amount: inputTokens + outputTokens });
+
+            // Envoyer le signal de fin
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
+            controller.close();
+          } catch (err) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`));
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(readable, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        },
       });
     }
 
