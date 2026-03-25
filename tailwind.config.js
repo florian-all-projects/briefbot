@@ -25,6 +25,7 @@ module.exports = {
       animation: {
         'fade-in': 'fadeIn 0.3s ease-out',
         'slide-up': 'slideUp 0.3s ease-out',
+        'pulse-slow': 'pulseSlow 3s ease-in-out infinite',
       },
       keyframes: {
         fadeIn: {
@@ -34,6 +35,10 @@ module.exports = {
         slideUp: {
           '0%': { opacity: '0', transform: 'translateY(16px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        pulseSlow: {
+          '0%, 100%': { borderColor: 'rgb(251 191 36)' },
+          '50%': { borderColor: 'rgb(245 158 11 / 0.4)' },
         },
       },
     },

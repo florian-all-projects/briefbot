@@ -178,27 +178,39 @@ export default function ClientPage() {
 
           <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">Progression</label>
-            {PHASES.map(phase => (
-              <div
-                key={phase.id}
-                className={`w-full text-left px-3 py-2 rounded-lg flex items-center gap-2 cursor-default ${
-                  (project.current_phase ?? 0) === phase.id
-                    ? 'bg-amber-50 border border-amber-300'
-                    : (project.phases_completed || []).includes(phase.id)
-                    ? 'bg-emerald-50/60 border border-emerald-200'
-                    : 'bg-white/60 border border-slate-200'
-                }`}
-              >
-                <span className="text-base">{(project.phases_completed || []).includes(phase.id) ? '✅' : phase.icon}</span>
-                <div className="min-w-0">
-                  <div className={`text-xs font-semibold truncate ${
-                    (project.current_phase ?? 0) === phase.id ? 'text-amber-800'
-                    : (project.phases_completed || []).includes(phase.id) ? 'text-emerald-700' : 'text-slate-700'
-                  }`}>{phase.name}</div>
-                  <div className="text-[10px] text-slate-400 truncate">{phase.desc}</div>
+            {PHASES.map(phase => {
+              const isActive = (project.current_phase ?? 0) === phase.id;
+              const isComplete = (project.phases_completed || []).includes(phase.id);
+              const isFuture = !isActive && !isComplete;
+
+              return (
+                <div
+                  key={phase.id}
+                  className={`w-full text-left px-3 py-2 rounded-lg flex items-center gap-2 cursor-default transition-all ${
+                    isActive
+                      ? 'bg-amber-50 border-2 border-amber-400 shadow-sm animate-pulse-slow'
+                      : isComplete
+                      ? 'bg-emerald-50/60 border border-emerald-200'
+                      : 'bg-slate-50/40 border border-slate-200 opacity-50'
+                  }`}
+                >
+                  <span className="text-base flex-shrink-0">
+                    {isComplete ? '✅' : isFuture ? '🔒' : phase.icon}
+                  </span>
+                  <div className="min-w-0">
+                    <div className={`text-xs font-semibold truncate ${
+                      isActive ? 'text-amber-800'
+                      : isComplete ? 'text-emerald-700'
+                      : 'text-slate-400'
+                    }`}>{phase.name}</div>
+                    <div className={`text-[10px] truncate ${isFuture ? 'text-slate-300' : 'text-slate-400'}`}>{phase.desc}</div>
+                  </div>
+                  {isActive && (
+                    <span className="ml-auto text-[9px] font-bold text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-full flex-shrink-0">EN COURS</span>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="p-4 border-t border-slate-100">
