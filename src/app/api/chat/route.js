@@ -376,7 +376,7 @@ export async function POST(request) {
 
     // Si le client fait des corrections sur une phase déjà complétée,
     // régénérer le résumé pour intégrer les nouvelles infos
-    if (!phaseMatch && phaseIndicator) {
+    if (phaseMatches.length === 0 && phaseIndicator) {
       const indicatedPhase = parseInt(phaseIndicator[1]);
       if (updatedPhases.includes(indicatedPhase)) {
         generatePhaseSummary(sb, projectId, indicatedPhase, allMessages)
@@ -398,7 +398,7 @@ export async function POST(request) {
     // et que la conversation dépasse le budget tokens, générer un résumé provisoire
     // pour ne pas perdre d'infos quand la fenêtre tronque les vieux messages
     const totalHistoryTokens = allMessages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
-    if (!phaseMatch && totalHistoryTokens > MAX_HISTORY_TOKENS) {
+    if (phaseMatches.length === 0 && totalHistoryTokens > MAX_HISTORY_TOKENS) {
       const existingSummaries = project.phase_summaries || {};
       const currentPhaseId = newCurrentPhase;
       if (!existingSummaries[String(currentPhaseId)]) {
