@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "SKILL=$HOME/.claude/commands/setup-new-web-project-github-o2switch-claudemd.md; [ -f \"$SKILL\" ] && [ \"$SKILL\" -nt CLAUDE.md ] && echo '⚠ Le skill setup-new-web-project-github-o2switch-claudemd a ete mis a jour apres la derniere config de ce projet. Relance /setup-new-web-project-github-o2switch-claudemd pour re-aligner.' || true"
+          }
+        ]
+      }
+    ]
+  }
+}
