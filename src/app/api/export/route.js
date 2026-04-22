@@ -76,7 +76,7 @@ const SECTIONS = [
     label: 'Profil & Identité',
     prompt: (project, conv, summaries) => sectionPrompt(
       `<h1>Profil de l'interlocuteur</h1> — métier, rôle, niveau digital/SEO/UX, connaissances techniques
-<h1>Identité & Vision</h1> — histoire de l'entreprise, mission, valeurs, vision à moyen terme, proposition de valeur unique. TOUS les détails.`,
+<h1>Identité & Vision</h1> — histoire de l'entreprise, mission, valeurs, vision à moyen terme, proposition de valeur unique. TOUS les détails. Inclure les réseaux sociaux (URLs, abonnés, fréquence) et le lien societe.com/Infogreffe si mentionnés.`,
       project, conv, summaries),
   },
   {
@@ -127,7 +127,7 @@ const SECTIONS = [
     label: 'Contenus & Contraintes',
     prompt: (project, conv, summaries) => sectionPrompt(
       `<h1>Contenus & Storytelling</h1> — histoires marquantes, témoignages, cas d'usage, contenu existant réutilisable, stratégie éditoriale, blog/articles prévus, fréquence de publication.
-<h1>Éléments existants & Contraintes</h1> — site actuel (ce qui marche/marche pas), CMS, hébergement, intégrations, outils tiers, budget et délais pour la refonte.`,
+<h1>Éléments existants & Contraintes</h1> — site actuel (ce qui marche/marche pas), CMS, hébergement, intégrations, outils tiers, budget et délais pour la refonte. Présence réseaux sociaux : comptes existants, stratégie, contenus performants.`,
       project, conv, summaries),
   },
   {

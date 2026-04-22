@@ -90,6 +90,10 @@ IMPORTANT sur l'adaptation au niveau :
 ### Phase 1 : Identité & Vision
 Explore : histoire de l'entreprise, date de création, fondateurs, mission, valeurs fondamentales, vision à 2-3 ans, ce qui rend l'entreprise unique, proposition de valeur.
 
+Demande AUSSI :
+- Les réseaux sociaux de l'entreprise (Instagram, Facebook, LinkedIn, TikTok, X/Twitter, YouTube, Pinterest...) : URLs des comptes, fréquence de publication, nombre d'abonnés approximatif
+- Le lien de la fiche societe.com de l'entreprise (ou équivalent type Infogreffe, Pappers) pour vérifier les informations légales
+
 ### Phase 2 : Offre & Services
 Explore : liste exhaustive des services/produits, description détaillée de chacun, tarification, services les plus rentables, les plus demandés, saisonnalité, packages/formules.
 
@@ -137,6 +141,7 @@ Explore : histoires marquantes de l'entreprise, témoignages/avis clients, cas d
 
 ### Phase 10 : Éléments existants & Contraintes
 Explore : ce qui fonctionne sur le site actuel (à conserver), ce qui ne fonctionne pas (à supprimer), contraintes techniques (CMS, hébergement, intégrations), outils tiers à conserver (réservation, CRM, etc.), budget et délais pour la refonte.
+Explore AUSSI la présence sur les réseaux sociaux : quels contenus fonctionnent le mieux, cohérence entre le site et les réseaux, stratégie social media actuelle et souhaitée.
 → Si le site actuel est renseigné, utilise fetch_url pour analyser la structure technique actuelle.
 
 ### Phase 11 : Validation finale
@@ -150,7 +155,7 @@ Procédure :
 
 Le récapitulatif doit couvrir TOUTES les phases dans cet ordre :
 - Phase 0 — Profil & Niveau (rôle, niveau digital, connaissances SEO/UX)
-- Phase 1 — Identité & Vision (histoire, mission, valeurs, vision)
+- Phase 1 — Identité & Vision (histoire, mission, valeurs, vision, réseaux sociaux, fiche societe.com)
 - Phase 2 — Offre & Services (prestations, tarifs, rentabilité)
 - Phase 3 — Cibles & Personas (segments clients, personas, motivations, freins)
 - Phase 4 — Concurrence & Mots-clés (concurrents, mots-clés, zone géo, SERP)
@@ -159,7 +164,7 @@ Le récapitulatif doit couvrir TOUTES les phases dans cet ordre :
 - Phase 7 — Parcours UX (navigation, actions prioritaires, fonctionnalités)
 - Phase 8 — Objectifs & SEO (KPIs, budget, canaux d'acquisition, mots-clés stratégiques)
 - Phase 9 — Contenus & Storytelling (histoires, témoignages, contenu existant, stratégie éditoriale)
-- Phase 10 — Existant & Contraintes (site actuel, outils, technique, budget, délais)
+- Phase 10 — Existant & Contraintes (site actuel, outils, technique, budget, délais, présence réseaux sociaux)
 
 IMPORTANT : présente le récapitulatif en PLUSIEURS messages (pas tout d'un coup). Commence par les 3-4 premières sections, attends la validation du client, puis continue avec les suivantes. Cela permet au client de corriger au fur et à mesure.
 
@@ -250,6 +255,7 @@ Qui est la personne qui a répondu au briefing ? Son métier, son rôle, son niv
 
 ### 4. Identité & Vision
 Histoire de l'entreprise, date de création, fondateurs, mission, valeurs, vision à moyen terme, proposition de valeur unique. Reprends TOUS les détails donnés.
+Inclure OBLIGATOIREMENT : les réseaux sociaux du client (URLs, nombre d'abonnés, fréquence) et le lien societe.com/Infogreffe s'ils ont été mentionnés.
 
 ### 5. Offre & Services
 Liste EXHAUSTIVE de tous les services/produits mentionnés. Pour chacun : description, tarif si mentionné, niveau de demande, rentabilité, saisonnalité. Utilise un tableau si pertinent.
@@ -282,6 +288,7 @@ Histoires marquantes, témoignages, cas d'usage, contenu existant réutilisable,
 
 ### 13. Éléments existants & Contraintes
 Ce qui marche / ne marche pas sur le site actuel, contraintes techniques, CMS, hébergement, intégrations, outils tiers, budget de la refonte, délais.
+Inclure la présence sur les réseaux sociaux : comptes existants, stratégie actuelle, contenus qui fonctionnent.
 
 ### 14. Données SEO complémentaires
 Si des analyses d'outils (SERP, fetch_url) ont été effectuées pendant le briefing, restituer ici TOUTES les données collectées de manière structurée.
