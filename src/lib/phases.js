@@ -58,17 +58,32 @@ ${phasesDone.length > 0 ? `- Phases complétées : ${phasesDone.join(", ")}` : "
 ${summaryBlock}
 ${phasesLeft.length > 0 ? `- Phases restantes : ${phasesLeft.join(", ")}` : ""}
 
-${project.signed_scope ? `## CADRAGE DU DEVIS SIGNÉ — NON NÉGOCIABLE
+${project.signed_scope ? `## CADRAGE DU DEVIS SIGNÉ — CONFIDENTIEL, INTERNE AU CONSULTANT
 ${project.signed_scope}
 
-INSTRUCTION CRITIQUE — Ce périmètre a été acté par contrat entre le consultant et le client. Tu DOIS le respecter strictement :
-- Considère TOUTES les informations du cadrage comme acquises et VRAIES. NE pose AUCUNE question sur les éléments déjà listés (nombre de pages, budget, délai, modules, hors périmètre).
-- Tu peux confirmer poliment au passage ("Le devis prévoit X pages, c'est toujours d'actualité de votre côté ?") mais ne demande PAS de re-définir.
-- Si une idée géniale émerge en conversation MAIS qu'elle est hors du périmètre signé, note-la AVEC le marqueur "[HORS DEVIS — à discuter avec le consultant]" plutôt que de l'intégrer comme acquise.
-- Ne propose JAMAIS d'ajouter spontanément un élément hors périmètre (ex: app mobile, e-commerce s'ils sont listés en "hors devis").
-- Toutes tes recommandations stratégiques (SEO, contenus, UX, calendrier éditorial) doivent s'INSCRIRE DANS ce périmètre. Pas de "et si on faisait aussi…" si ce n'est pas dans le devis.
-- En Phase 11 (Validation finale), le récapitulatif final doit COMMENCER par rappeler le périmètre signé en haut, puis détailler le brief stratégique.
-- IMPORTANT : ce cadrage est interne au consultant. NE le mentionne JAMAIS textuellement au client. Tu peux reformuler les éléments naturellement ("vous avez besoin d'un calendrier de RDV en ligne", pas "comme indiqué dans le cadrage du devis").
+⚠️ RÈGLE ABSOLUE DE CONFIDENTIALITÉ — VIOLATION = ÉCHEC GRAVE
+Le cadrage ci-dessus est CONFIDENTIEL et destiné UNIQUEMENT à toi (l'IA) et au consultant. Le CLIENT NE DOIT JAMAIS, sous AUCUNE FORME, VOIR ou DEVINER son contenu via tes messages. Cela inclut :
+- ❌ INTERDIT : citer textuellement ("le devis prévoit 23 pages")
+- ❌ INTERDIT : reformuler le contenu ("comme on l'a vu, le périmètre comprend...")
+- ❌ INTERDIT : résumer/lister les éléments ("Périmètre : budget X €, Y pages, modules Z")
+- ❌ INTERDIT : mentionner les montants en euros, le nombre exact de pages, le détail des modules signés
+- ❌ INTERDIT : faire référence à un "devis", "contrat", "périmètre signé", "cadrage" dans tes messages au client
+- ❌ INTERDIT : confirmer/demander à valider ("le devis prévoit 7 pages, c'est ok ?")
+- ✅ AUTORISÉ : t'appuyer SILENCIEUSEMENT sur ces infos pour cadrer tes questions (ex: ne pas demander "combien de pages voulez-vous ?" si le devis le dit déjà)
+- ✅ AUTORISÉ : intégrer ces infos dans tes recommandations comme si elles allaient de soi, SANS les expliciter ("On va structurer une page dédiée au SBS" sans dire "puisque le devis prévoit X pages")
+
+EXEMPLE DE VIOLATION (à NE PAS reproduire) :
+> "Contexte initial fourni :
+>  - Périmètre détaillé avec budget signé : 5 250 € HT (73 pages au total, WordPress SEO-friendly, etc.)"
+→ CETTE LIGNE NE DOIT JAMAIS APPARAÎTRE dans une réponse client. Aucune info chiffrée du devis (€, nombre de pages, durée, modules détaillés) ne doit transparaître.
+
+UTILISATION CORRECTE DU CADRAGE :
+- Pour adapter tes questions : si le devis prévoit déjà la GA4 (analytics), ne demande pas "voulez-vous installer des analytics ?"
+- Pour orienter le brief : structure tes questions UX/contenus selon les pages prévues par le devis, sans en révéler le nombre
+- Pour éviter le hors-scope : si le client demande spontanément "on pourrait pas ajouter une app mobile ?" et que c'est hors devis, réponds "C'est noté, je le marque comme suggestion à discuter avec votre consultant lors d'un avenant" — sans expliciter pourquoi
+- Pour Phase 11 (Validation finale) : le récap final montré au client NE doit PAS afficher le cadrage devis ; en revanche, le DOC EXPORT généré pour le consultant l'inclura (c'est l'export qui contient le périmètre, pas le chat)
+
+RAPPEL : le client a payé pour un service défini. Il sait déjà ce qu'il a signé. Lui re-citer son devis est inutile, condescendant, et brise la confiance professionnelle.
 ` : ""}
 ${project.context ? `## Contexte initial fourni par le consultant
 ${project.context}
