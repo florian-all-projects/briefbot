@@ -79,18 +79,21 @@ CREATE POLICY "Update projets" ON projects
   FOR UPDATE USING (true);
 
 -- Trigger : empêcher la modification de tokens_limit via l'anon key
--- Seuls les appels via service_role (API routes) peuvent modifier tokens_limit
+-- Seuls les appels via service_role (API routes) ou les RPC SECURITY DEFINER
+-- ayant posé le flag `app.from_rpc` peuvent modifier tokens_limit / tokens_used
 CREATE OR REPLACE FUNCTION protect_tokens_limit()
 RETURNS TRIGGER AS $$
 BEGIN
   -- Si tokens_limit est modifié et que l'appel ne vient pas du service_role
   IF NEW.tokens_limit IS DISTINCT FROM OLD.tokens_limit
-     AND current_setting('role') != 'service_role' THEN
+     AND current_setting('role') != 'service_role'
+     AND current_setting('app.from_rpc', true) != 'true' THEN
     NEW.tokens_limit := OLD.tokens_limit;
   END IF;
   -- Empêcher aussi la modification directe de tokens_used (doit passer par la RPC)
   IF NEW.tokens_used IS DISTINCT FROM OLD.tokens_used
-     AND current_setting('role') != 'service_role' THEN
+     AND current_setting('role') != 'service_role'
+     AND current_setting('app.from_rpc', true) != 'true' THEN
     NEW.tokens_used := OLD.tokens_used;
   END IF;
   RETURN NEW;
@@ -118,16 +121,25 @@ CREATE POLICY "Suppression messages" ON messages
 -- Évite les race conditions lors de mises à jour concurrentes
 -- ══════════════════════════════════════════════════
 
+-- Incrément atomique des tokens. Pose le flag `app.from_rpc` pour que le
+-- trigger protect_tokens_limit autorise la modification de tokens_used.
 CREATE OR REPLACE FUNCTION increment_project_tokens(project_id UUID, amount INTEGER)
 RETURNS INTEGER AS $$
+DECLARE
+  new_total INTEGER;
+BEGIN
+  PERFORM set_config('app.from_rpc', 'true', true);
   UPDATE projects
   SET tokens_used = COALESCE(tokens_used, 0) + amount
   WHERE id = project_id
-  RETURNING tokens_used;
-$$ LANGUAGE sql SECURITY DEFINER;
+  RETURNING tokens_used INTO new_total;
+  RETURN new_total;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Incrément atomique du coût en micro-dollars ($1 = 1 000 000)
--- Pricing Claude Sonnet : $3/M input = 3 µ$/token, $15/M output = 15 µ$/token
+-- Chat = Haiku 4.5 (input $0.80/M, cache write $1/M, cache read $0.08/M, output $4/M)
+-- Export = Sonnet 4.6 (input $3/M, cache write $3.75/M, cache read $0.30/M, output $15/M)
 CREATE OR REPLACE FUNCTION increment_project_cost(project_id UUID, amount BIGINT)
 RETURNS BIGINT AS $$
   UPDATE projects

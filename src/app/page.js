@@ -51,7 +51,7 @@ function CostBar({ costMicro, budgetMicro, showDetail = false, size = 'normal' }
       </div>
       {showDetail && (
         <div className="text-[10px] text-slate-400">
-          Coût réel API Claude (input $3/M + output $15/M)
+          Coût réel API Claude. Chat : Haiku 4.5 (input $0.80/M, cache $0.08/M, output $4/M). Export : Sonnet 4.6 (input $3/M, cache $0.30/M, output $15/M).
         </div>
       )}
     </div>
