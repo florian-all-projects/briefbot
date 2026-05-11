@@ -7,13 +7,13 @@
 ## [CORE] Contexte
 
 **Projet** : BriefBot — outil SaaS de briefing client automatise par IA pour consultants SEO / web.
-L'IA guide les clients a travers 10 phases de briefing structure (identite, offre, personas, concurrence, SWOT, UX, SEO, contenus, contraintes). Chaque projet genere un document strategique exporte en `.doc`.
+L'IA guide les clients a travers 12 phases de briefing structure (numerotees 0 a 11) : Phase 0 Profil & Niveau, 1 Identite & Vision, 2 Offre & Services, 3 Cibles & Personas, 4 Concurrence & Mots-cles, 5 SWOT, 6 Tonalite & Marque, 7 Parcours UX, 8 Objectifs & SEO, 9 Contenus & Storytelling, 10 Existant & Contraintes, 11 Validation finale. Source de verite : `src/lib/phases.js` (constante `PHASES`). Chaque projet genere un document strategique exporte en `.doc`.
 
 **Mode d'usage** :
 - Consultant (Florian) cree un projet dans le dashboard, genere un lien partageable
 - Client ouvre le lien, discute avec l'IA en autonomie phase par phase
 - Consultant peut reprendre la conversation a tout moment (mode avance)
-- Export `.doc` structure en 10 sections generees une par une (pour eviter les coupures)
+- Export `.doc` structure en sections generees une par une (pour eviter les coupures)
 
 **Aucun NDD** ne pointe pour l'instant vers le deploiement Vercel — acces via l'URL `*.vercel.app`.
 

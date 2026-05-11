@@ -14,6 +14,55 @@ function renderMd(text) {
     .replace(/\n/g, '<br/>');
 }
 
+// ─── Cost helpers (mirror src/app/page.js) ───
+function microToUsd(micro) {
+  return (micro || 0) / 1000000;
+}
+
+function formatUsd(usd) {
+  if (usd >= 1) return '$' + usd.toFixed(2);
+  if (usd >= 0.01) return '$' + usd.toFixed(2);
+  return '$' + usd.toFixed(3);
+}
+
+function costPercentage(costMicro, budgetMicro) {
+  if (!budgetMicro) return 0;
+  return Math.min(Math.round(((costMicro || 0) / budgetMicro) * 100), 100);
+}
+
+function costBarColor(pct) {
+  if (pct >= 90) return 'from-red-500 to-red-600';
+  if (pct >= 70) return 'from-amber-500 to-orange-500';
+  return 'from-emerald-500 to-green-500';
+}
+
+function CostBar({ costMicro, budgetMicro }) {
+  const cost = costMicro || 0;
+  const budget = budgetMicro || 5000000;
+  const pct = costPercentage(cost, budget);
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-semibold text-slate-500">
+          {formatUsd(microToUsd(cost))} / {formatUsd(microToUsd(budget))}
+        </span>
+        <span className={`text-[10px] font-bold ${
+          pct >= 90 ? 'text-red-600' : pct >= 70 ? 'text-amber-600' : 'text-emerald-600'
+        }`}>
+          {pct}%
+        </span>
+      </div>
+      <div className="w-full bg-slate-200 rounded-full h-1.5">
+        <div
+          className={`h-full rounded-full bg-gradient-to-r ${costBarColor(pct)} transition-all duration-500`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function ClientPage() {
   const params = useParams();
   const token = params.token;
@@ -26,6 +75,7 @@ export default function ClientPage() {
   const [error, setError] = useState(null);
   const [notFound, setNotFound] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [limitReached, setLimitReached] = useState(false);
 
   const chatEndRef = useRef(null);
 
@@ -55,6 +105,12 @@ export default function ClientPage() {
       }
 
       setProject(proj);
+
+      // Initialiser limitReached si le projet a déjà dépassé son budget
+      const initialBudget = proj.budget_micro_usd || 5000000;
+      if ((proj.cost_micro_usd || 0) >= initialBudget) {
+        setLimitReached(true);
+      }
 
       const { data: msgs } = await supabase
         .from('messages')
@@ -110,7 +166,7 @@ export default function ClientPage() {
   };
 
   const sendMessage = async () => {
-    if (!input.trim() || chatLoading) return;
+    if (!input.trim() || chatLoading || limitReached) return;
     const userMsg = { role: 'user', content: input.trim(), mode: 'client', created_at: new Date().toISOString() };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
@@ -128,10 +184,35 @@ export default function ClientPage() {
         }),
       });
       const data = await res.json();
+
+      // Cas budget atteint (HTTP 429)
+      if (data.limit_reached) {
+        // Sync cost/budget pour mettre à jour la barre en live
+        setProject(prev => ({
+          ...prev,
+          ...(data.cost_usd != null && { cost_micro_usd: Math.round(data.cost_usd * 1000000) }),
+          ...(data.budget_usd != null && { budget_micro_usd: Math.round(data.budget_usd * 1000000) }),
+        }));
+        setLimitReached(true);
+        // Retirer le message utilisateur ajouté optimistiquement
+        setMessages(prev => prev.slice(0, -1));
+        setChatLoading(false);
+        return;
+      }
+
       if (data.error) throw new Error(data.error);
 
       const aiMsg = { role: 'assistant', content: data.content, mode: 'client', created_at: new Date().toISOString() };
       setMessages(prev => [...prev, aiMsg]);
+
+      // Sync cost/budget en live (comme côté admin)
+      if (data.cost_usd != null) {
+        setProject(prev => ({
+          ...prev,
+          cost_micro_usd: Math.round(data.cost_usd * 1000000),
+          ...(data.budget_usd != null && { budget_micro_usd: Math.round(data.budget_usd * 1000000) }),
+        }));
+      }
 
       // Sync phase state from server (source of truth)
       if (data.current_phase !== undefined || data.phases_completed) {
@@ -183,8 +264,8 @@ export default function ClientPage() {
             <div className="inline-flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-full px-3 py-1 text-[10px] font-semibold text-amber-700 mb-3">
               🤖 BRIEFBOT
             </div>
-            <h2 className="font-bold text-slate-800 text-sm truncate">{project.name}</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Briefing pour {project.client_name}</p>
+            <h2 className="font-bold text-slate-800 text-sm truncate" title={project.name}>{project.name}</h2>
+            <p className="text-xs text-slate-400 mt-0.5" title={`Briefing pour ${project.client_name}`}>Briefing pour {project.client_name}</p>
           </div>
 
           <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
@@ -197,6 +278,7 @@ export default function ClientPage() {
               return (
                 <div
                   key={phase.id}
+                  title={`Phase ${phase.id} — ${phase.name}\n${phase.desc}`}
                   className={`w-full text-left px-3 py-2 rounded-lg flex items-center gap-2 cursor-default transition-all ${
                     isActive
                       ? 'bg-amber-50 border-2 border-amber-400 shadow-sm animate-pulse-slow'
@@ -214,7 +296,7 @@ export default function ClientPage() {
                       : isComplete ? 'text-emerald-700'
                       : 'text-slate-400'
                     }`}>{phase.name}</div>
-                    <div className={`text-[10px] truncate ${isFuture ? 'text-slate-300' : 'text-slate-400'}`}>{phase.desc}</div>
+                    <div className={`text-[10px] truncate ${isFuture ? 'text-slate-300' : 'text-slate-400'}`} title={phase.desc}>{phase.desc}</div>
                   </div>
                   {isActive && (
                     <span className="ml-auto text-[9px] font-bold text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-full flex-shrink-0">EN COURS</span>
@@ -224,12 +306,18 @@ export default function ClientPage() {
             })}
           </div>
 
-          <div className="p-4 border-t border-slate-100">
-            <div className="text-center text-[10px] text-slate-400">
-              {(project.phases_completed || []).filter(id => id > 0).length}/11 phases complétées
+          <div className="p-4 border-t border-slate-100 space-y-3">
+            <div>
+              <div className="text-center text-[10px] text-slate-400">
+                {(project.phases_completed || []).filter(id => id > 0).length}/11 phases complétées
+              </div>
+              <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2">
+                <div className="bg-gradient-to-r from-amber-500 to-orange-500 h-1.5 rounded-full transition-all" style={{ width: `${((project.phases_completed || []).filter(id => id > 0).length / 11) * 100}%` }} />
+              </div>
             </div>
-            <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2">
-              <div className="bg-gradient-to-r from-amber-500 to-orange-500 h-1.5 rounded-full transition-all" style={{ width: `${((project.phases_completed || []).filter(id => id > 0).length / 11) * 100}%` }} />
+            <div className="pt-3 border-t border-slate-100" title="Consommation API en temps réel (Claude Haiku)">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Consommation</div>
+              <CostBar costMicro={project.cost_micro_usd} budgetMicro={project.budget_micro_usd} />
             </div>
           </div>
         </div>
@@ -300,30 +388,41 @@ export default function ClientPage() {
 
         {/* Input */}
         <div className="border-t border-slate-200 bg-white p-4">
-          <div className="flex gap-3 items-end max-w-4xl mx-auto">
-            <textarea
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-              placeholder="Répondez aux questions de BriefBot..."
-              rows={1}
-              className="flex-1 px-4 py-3 border border-slate-300 rounded-xl text-sm resize-none bg-slate-50 focus:bg-white transition-colors"
-              style={{ minHeight: '44px', maxHeight: '120px' }}
-              onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
-            />
-            <button
-              onClick={sendMessage}
-              disabled={!input.trim() || chatLoading}
-              className={`px-5 py-3 rounded-xl text-sm font-bold transition-all ${
-                input.trim() && !chatLoading ? 'bg-slate-800 text-white hover:bg-slate-700 shadow-md' : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-              }`}
-            >
-              Envoyer
-            </button>
-          </div>
-          <div className="text-center mt-2 text-[10px] text-slate-400">
-            Entrée pour envoyer · Shift+Entrée pour un saut de ligne
-          </div>
+          {limitReached ? (
+            <div className="max-w-4xl mx-auto text-center py-3 text-sm text-amber-800 bg-amber-50 rounded-xl border border-amber-200">
+              ⚠️ Le budget de cette conversation a été atteint. Contactez votre consultant pour le poursuivre.
+            </div>
+          ) : (
+            <>
+              <div className="flex gap-3 items-end max-w-4xl mx-auto">
+                <textarea
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                  placeholder={chatLoading ? "BriefBot rédige sa réponse, patientez..." : "Répondez aux questions de BriefBot..."}
+                  rows={1}
+                  disabled={chatLoading}
+                  className={`flex-1 px-4 py-3 border border-slate-300 rounded-xl text-sm resize-none transition-colors ${
+                    chatLoading ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                  }`}
+                  style={{ minHeight: '44px', maxHeight: '120px' }}
+                  onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
+                />
+                <button
+                  onClick={sendMessage}
+                  disabled={!input.trim() || chatLoading}
+                  className={`px-5 py-3 rounded-xl text-sm font-bold transition-all ${
+                    input.trim() && !chatLoading ? 'bg-slate-800 text-white hover:bg-slate-700 shadow-md' : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                  }`}
+                >
+                  Envoyer
+                </button>
+              </div>
+              <div className="text-center mt-2 text-[10px] text-slate-400">
+                Entrée pour envoyer · Shift+Entrée pour un saut de ligne
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -574,8 +574,8 @@ export default function Dashboard() {
           <div className="w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0">
             <div className="p-4 border-b border-slate-100">
               <button onClick={() => { setView('list'); setSelectedProject(null); loadProjects(); }} className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1 mb-3">← Projets</button>
-              <h2 className="font-bold text-slate-800 text-sm truncate">{selectedProject.name}</h2>
-              <p className="text-xs text-slate-400 truncate">{selectedProject.client_name}</p>
+              <h2 className="font-bold text-slate-800 text-sm truncate" title={selectedProject.name}>{selectedProject.name}</h2>
+              <p className="text-xs text-slate-400 truncate" title={selectedProject.client_name}>{selectedProject.client_name}</p>
               <button onClick={() => copyShareLink(selectedProject.share_token)} className="mt-2 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-2 py-1 rounded-md hover:bg-amber-100 transition-all">
                 {copied === selectedProject.share_token ? '✅ Copié !' : '🔗 Copier le lien client'}
               </button>
@@ -676,6 +676,7 @@ export default function Dashboard() {
                 <button
                   key={phase.id}
                   onClick={() => goToPhase(phase.id)}
+                  title={`Phase ${phase.id} — ${phase.name}\n${phase.desc}`}
                   className={`w-full text-left px-3 py-2 rounded-lg transition-all flex items-center gap-2 ${
                     (selectedProject.current_phase ?? 0) === phase.id
                       ? 'bg-amber-50 border border-amber-300'
@@ -831,9 +832,12 @@ export default function Dashboard() {
                   value={chatInput}
                   onChange={e => setChatInput(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                  placeholder={mode === 'consultant' ? 'Question ou analyse...' : 'Répondez à BriefBot...'}
+                  placeholder={chatLoading ? 'BriefBot rédige sa réponse, patientez...' : (mode === 'consultant' ? 'Question ou analyse...' : 'Répondez à BriefBot...')}
                   rows={1}
-                  className="flex-1 px-4 py-3 border border-slate-300 rounded-xl text-sm resize-none bg-slate-50 focus:bg-white transition-colors"
+                  disabled={chatLoading}
+                  className={`flex-1 px-4 py-3 border border-slate-300 rounded-xl text-sm resize-none transition-colors ${
+                    chatLoading ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                  }`}
                   style={{ minHeight: '44px', maxHeight: '120px' }}
                   onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
                 />
@@ -893,9 +897,9 @@ export default function Dashboard() {
                     {p.client_name?.[0]?.toUpperCase() || '?'}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-slate-800 truncate">{p.name}</div>
-                    <div className="text-xs text-slate-400">
-                      {p.client_name} · Phase {p.current_phase ?? 0}/10
+                    <div className="font-semibold text-slate-800 truncate" title={p.name}>{p.name}</div>
+                    <div className="text-xs text-slate-400" title={p.client_name}>
+                      {p.client_name} · Phase {p.current_phase ?? 0}/11
                     </div>
                   </div>
                   <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>

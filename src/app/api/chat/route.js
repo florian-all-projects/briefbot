@@ -370,6 +370,18 @@ export async function POST(request) {
     if (phaseIndicator) {
       const indicatedPhase = parseInt(phaseIndicator[1]);
       if (indicatedPhase !== newCurrentPhase) {
+        // Rattrapage : si l'IA est passée à Phase X sans avoir dit "✅ Phase Y complétée"
+        // pour les phases précédentes, on les complète d'office (sauf Phase 11 = validation)
+        if (indicatedPhase > newCurrentPhase && indicatedPhase < 11) {
+          for (let p = newCurrentPhase; p < indicatedPhase; p++) {
+            if (!updatedPhases.includes(p)) {
+              updatedPhases.push(p);
+              // Générer un résumé pour la phase rattrapée
+              generatePhaseSummary(sb, projectId, p, allMessages)
+                .catch(err => console.error(`[Phase Summary] Background catch-up phase ${p}:`, err));
+            }
+          }
+        }
         newCurrentPhase = indicatedPhase;
       }
     }

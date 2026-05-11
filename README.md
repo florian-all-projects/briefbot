@@ -1,10 +1,10 @@
 # 🤖 BriefBot — Briefing Stratégique IA
 
-Outil de collecte de brief par chat IA pour consultants SEO / web. L'IA guide tes clients à travers 10 phases de briefing structuré et génère un document stratégique complet (.doc).
+Outil de collecte de brief par chat IA pour consultants SEO / web. L'IA guide tes clients à travers 12 phases de briefing structuré (numérotées 0 à 11) et génère un document stratégique complet (.doc).
 
 ## ✨ Fonctionnalités
 
-- **Chat IA guidé** — 10 phases couvrant identité, offre, personas, SWOT, UX, SEO, etc.
+- **Chat IA guidé** — 12 phases (0 à 11) couvrant profil/niveau, identité, offre, personas, concurrence, SWOT, marque, UX, SEO, contenus, contraintes, validation finale.
 - **Mode Client** — Ton client reçoit un lien, discute avec l'IA en autonomie
 - **Mode Consultant** — Tu reprends la conversation, l'IA devient technique et analytique
 - **Injection de contexte** — Colle une transcription d'appel, l'IA ne repose pas les mêmes questions
