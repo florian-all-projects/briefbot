@@ -126,17 +126,42 @@ async function generatePhaseSummary(sb, projectId, phaseId, allMessages) {
   try {
     const response = await anthropic.messages.create({
       model: CHAT_MODEL,
-      max_tokens: 800,
+      max_tokens: 1000,
       messages: [{
         role: 'user',
         content: `Résume en bullet points TOUTES les informations clés collectées pendant la Phase ${phaseId} — ${phaseName} de ce briefing.
 
-RÈGLES :
+STRUCTURE OBLIGATOIRE — RESPECTE EXACTEMENT CES SECTIONS :
+
+## SYNTHÈSE
+Bullet points exhaustifs des points clés de cette phase, format concis.
+
+## 📌 FAITS PRÉCIS COLLECTÉS
+Liste EXHAUSTIVE des données factuelles précises mentionnées dans cette phase. Une donnée par ligne. SI cette phase n'a produit aucun fait précis, écris "Aucun fait précis dans cette phase."
+Inclus systématiquement, quand applicable :
+- URLs (sites web, réseaux sociaux, fiches Pappers/Infogreffe...)
+- Identifiants (SIREN, SIRET, RPVA, numéros de carte pro...)
+- Noms propres confirmés (personnes, entreprises, lieux, outils)
+- Montants chiffrés (en €)
+- Pourcentages et ratios
+- Dates précises (création, échéances...)
+- Volumes (nombre de dossiers/an, etc.)
+- Fréquences (publications, RDV...)
+Format : "[Type] : [valeur exacte] — [contexte si utile]"
+
+## 🔄 RÉVISIONS / CORRECTIONS
+Si le client a corrigé ou révisé une information PENDANT cette phase, liste-les ici au format :
+"[Donnée] : valeur initiale [V1] → valeur finale [V2]"
+Si aucune révision : "Aucune révision dans cette phase."
+
+## ⚠️ INFOS NON FOURNIES
+Liste les questions obligatoires de la phase auxquelles le client n'a PAS répondu, et qu'il a explicitement skippées. Si tout a été fourni : "Toutes les infos obligatoires fournies."
+
+RÈGLES STRICTES :
 - Reprends CHAQUE information concrète : noms, chiffres, URLs, villes, dates, budgets
-- Format : bullet points concis mais exhaustifs
 - Ne mets PAS de commentaires ou recommandations, uniquement les FAITS collectés
-- Si le client a donné un chiffre ou un nom, il DOIT apparaître
-- Si le client a CORRIGÉ une information précédemment donnée, utilise la version CORRIGÉE (la plus récente)
+- Si le client a CORRIGÉ une information, mets la version FINALE dans FAITS PRÉCIS et note la révision dans RÉVISIONS
+- Pour les éléments INFÉRÉS par l'IA (non dits par le client), préfixe avec "[INFÉRÉ]"
 - Français uniquement
 
 Conversation récente :
