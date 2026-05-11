@@ -83,8 +83,26 @@ export default function Dashboard() {
   const [newClient, setNewClient] = useState('');
   const [newUrl, setNewUrl] = useState('');
   const [newContext, setNewContext] = useState('');
+  const [newSignedScope, setNewSignedScope] = useState('');
   const [newTokensLimit, setNewTokensLimit] = useState('1000000');
   const [newBudgetUsd, setNewBudgetUsd] = useState('5');
+  const [editingScope, setEditingScope] = useState(false);
+  const [scopeDraft, setScopeDraft] = useState('');
+  const SCOPE_TEMPLATE = `Cadrage du devis signé :
+
+- Type de prestation : [Refonte | Création | Audit + accompagnement]
+- Nombre de pages : [X]
+- Modules inclus :
+  • [ex : Calendrier de RDV en ligne]
+  • [ex : Blog]
+  • [ex : Multi-langue FR/EN]
+- Budget refonte one-shot : [X € HT]
+- Budget mensuel SEO + contenu : [X €/mois pendant X mois]
+- Délai livraison v1 : [JJ/MM/AAAA]
+- Hors périmètre (NE PAS proposer) :
+  • [ex : Application mobile]
+  • [ex : E-commerce]
+- Notes / particularités : [...]`;
   const TOTAL_CONTENT_PHASES = 10; // Phases 1-10 (Phase 0 = profiling, pas comptée dans la progression)
 
   const chatEndRef = useRef(null);
@@ -146,6 +164,7 @@ export default function Dashboard() {
           client_name: newClient.trim(),
           url: newUrl.trim(),
           context: newContext.trim(),
+          signed_scope: newSignedScope.trim(),
           tokens_limit: parseInt(newTokensLimit) || 1000000,
           budget_usd: parseFloat(newBudgetUsd) || 5,
           password: storedPw,
@@ -153,7 +172,7 @@ export default function Dashboard() {
       });
       const data = await res.json();
       if (data.project) {
-        setNewName(''); setNewClient(''); setNewUrl(''); setNewContext(''); setNewBudgetUsd('5');
+        setNewName(''); setNewClient(''); setNewUrl(''); setNewContext(''); setNewSignedScope(''); setNewBudgetUsd('5');
         await loadProjects();
         openProject(data.project);
       }
@@ -187,6 +206,18 @@ export default function Dashboard() {
     if (selectedProject?.id === projectId) {
       setSelectedProject(prev => ({ ...prev, budget_micro_usd: Math.round(newBudget * 1000000) }));
     }
+  };
+
+  const saveScope = async () => {
+    if (!selectedProject) return;
+    await fetch('/api/projects', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId: selectedProject.id, signed_scope: scopeDraft, password: storedPw }),
+    });
+    setSelectedProject(prev => ({ ...prev, signed_scope: scopeDraft }));
+    setEditingScope(false);
+    await loadProjects();
   };
 
   const openProject = async (project) => {
@@ -314,6 +345,7 @@ export default function Dashboard() {
   const [exportHistory, setExportHistory] = useState([]);
   const [showExportHistory, setShowExportHistory] = useState(false);
   const [showContext, setShowContext] = useState(false);
+  const [showScope, setShowScope] = useState(false);
 
   const loadExportHistory = async (projId) => {
     try {
@@ -548,6 +580,20 @@ export default function Dashboard() {
               <p className="text-xs text-slate-400 mb-2">Transcription d'appel, notes, brief existant…</p>
               <textarea value={newContext} onChange={e => setNewContext(e.target.value)} placeholder="Collez vos notes ici..." rows={6} className="w-full px-4 py-3 border border-slate-300 rounded-xl text-sm bg-white resize-none" />
             </div>
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm font-semibold text-slate-700">Cadrage du devis signé <span className="font-normal text-slate-400">(optionnel)</span></label>
+                <button
+                  type="button"
+                  onClick={() => setNewSignedScope(prev => prev.trim() ? prev : SCOPE_TEMPLATE)}
+                  className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md font-semibold transition-all"
+                >
+                  📋 Pré-remplir le modèle
+                </button>
+              </div>
+              <p className="text-xs text-slate-400 mb-2">Périmètre acté avec le client (pages, modules, budget, délai, hors devis). L'IA s'en sert pour cadrer ses questions mais le client ne le voit pas.</p>
+              <textarea value={newSignedScope} onChange={e => setNewSignedScope(e.target.value)} placeholder="Ex : refonte 7 pages, calendrier RDV, blog, multi-langue. Budget 10 000 € + 300 €/mois. Livraison juillet. Hors devis : app mobile, e-commerce." rows={8} className="w-full px-4 py-3 border border-slate-300 rounded-xl text-sm bg-white resize-none font-mono" />
+            </div>
             <button
               onClick={createProject}
               disabled={!newName.trim() || !newClient.trim() || loading}
@@ -598,6 +644,75 @@ export default function Dashboard() {
                 )}
               </div>
             )}
+
+            {/* Cadrage devis signé (consultant uniquement) */}
+            <div className="px-4 py-3 border-b border-slate-100">
+              <button
+                onClick={() => setShowScope(!showScope)}
+                className="text-[10px] font-bold text-slate-400 uppercase tracking-wider hover:text-slate-600 flex items-center gap-1 w-full"
+              >
+                <span>{showScope ? '▼' : '▶'}</span>
+                <span>📋 Cadrage devis</span>
+                {!selectedProject.signed_scope && <span className="text-amber-600 normal-case font-normal">(vide)</span>}
+              </button>
+              {showScope && (
+                <div className="mt-2">
+                  {editingScope ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-slate-500">Édition</span>
+                        <button
+                          type="button"
+                          onClick={() => setScopeDraft(prev => prev.trim() ? prev : SCOPE_TEMPLATE)}
+                          className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md font-semibold transition-all"
+                        >
+                          📋 Pré-remplir
+                        </button>
+                      </div>
+                      <textarea
+                        value={scopeDraft}
+                        onChange={e => setScopeDraft(e.target.value)}
+                        rows={12}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white resize-none font-mono"
+                        placeholder="Périmètre signé : pages, modules, budget, délai, hors devis..."
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={saveScope}
+                          className="flex-1 text-xs bg-slate-800 text-white py-1.5 rounded-lg font-semibold hover:bg-slate-700"
+                        >
+                          Enregistrer
+                        </button>
+                        <button
+                          onClick={() => { setEditingScope(false); setScopeDraft(''); }}
+                          className="flex-1 text-xs bg-slate-100 text-slate-700 py-1.5 rounded-lg font-semibold hover:bg-slate-200"
+                        >
+                          Annuler
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      {selectedProject.signed_scope ? (
+                        <div className="max-h-60 overflow-y-auto bg-amber-50/40 rounded-lg p-3 border border-amber-200">
+                          <div className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed font-mono">{selectedProject.signed_scope}</div>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-slate-500 italic bg-amber-50/40 rounded-lg p-3 border border-amber-200">
+                          Aucun cadrage de devis renseigné. L'IA ne saura pas ce qui est inclus ou hors périmètre.
+                        </div>
+                      )}
+                      <button
+                        onClick={() => { setScopeDraft(selectedProject.signed_scope || ''); setEditingScope(true); }}
+                        className="mt-2 w-full text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 py-1.5 rounded-lg font-semibold transition-all"
+                      >
+                        ✏️ {selectedProject.signed_scope ? 'Modifier le cadrage' : 'Ajouter un cadrage'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* Cost counter */}
             <div className="px-4 py-3 border-b border-slate-100">

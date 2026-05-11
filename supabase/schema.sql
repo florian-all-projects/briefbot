@@ -10,6 +10,7 @@ CREATE TABLE projects (
   client_name TEXT NOT NULL,
   url TEXT DEFAULT '',
   context TEXT DEFAULT '',
+  signed_scope TEXT DEFAULT '',
   current_phase INTEGER DEFAULT 0,
   phases_completed INTEGER[] DEFAULT '{}',
   share_token TEXT UNIQUE DEFAULT encode(gen_random_bytes(12), 'hex'),

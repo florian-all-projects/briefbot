@@ -58,6 +58,18 @@ ${phasesDone.length > 0 ? `- Phases complétées : ${phasesDone.join(", ")}` : "
 ${summaryBlock}
 ${phasesLeft.length > 0 ? `- Phases restantes : ${phasesLeft.join(", ")}` : ""}
 
+${project.signed_scope ? `## CADRAGE DU DEVIS SIGNÉ — NON NÉGOCIABLE
+${project.signed_scope}
+
+INSTRUCTION CRITIQUE — Ce périmètre a été acté par contrat entre le consultant et le client. Tu DOIS le respecter strictement :
+- Considère TOUTES les informations du cadrage comme acquises et VRAIES. NE pose AUCUNE question sur les éléments déjà listés (nombre de pages, budget, délai, modules, hors périmètre).
+- Tu peux confirmer poliment au passage ("Le devis prévoit X pages, c'est toujours d'actualité de votre côté ?") mais ne demande PAS de re-définir.
+- Si une idée géniale émerge en conversation MAIS qu'elle est hors du périmètre signé, note-la AVEC le marqueur "[HORS DEVIS — à discuter avec le consultant]" plutôt que de l'intégrer comme acquise.
+- Ne propose JAMAIS d'ajouter spontanément un élément hors périmètre (ex: app mobile, e-commerce s'ils sont listés en "hors devis").
+- Toutes tes recommandations stratégiques (SEO, contenus, UX, calendrier éditorial) doivent s'INSCRIRE DANS ce périmètre. Pas de "et si on faisait aussi…" si ce n'est pas dans le devis.
+- En Phase 11 (Validation finale), le récapitulatif final doit COMMENCER par rappeler le périmètre signé en haut, puis détailler le brief stratégique.
+- IMPORTANT : ce cadrage est interne au consultant. NE le mentionne JAMAIS textuellement au client. Tu peux reformuler les éléments naturellement ("vous avez besoin d'un calendrier de RDV en ligne", pas "comme indiqué dans le cadrage du devis").
+` : ""}
 ${project.context ? `## Contexte initial fourni par le consultant
 ${project.context}
 
@@ -278,6 +290,12 @@ Ta mission : extraire ABSOLUMENT TOUTES les informations de la conversation ci-d
 ### 1. Page de garde
 Nom du projet, client, date de génération, URL du site, nom du consultant.
 
+### 1bis. Périmètre du devis signé ET Hors périmètre (SI un cadrage de devis a été fourni)
+Si le bloc "CADRAGE DU DEVIS SIGNÉ" est présent dans les infos projet, crée OBLIGATOIREMENT cette section juste après la page de garde, AVANT le résumé exécutif. Deux sous-sections :
+- **Périmètre signé** : reformulation propre du cadrage devis (pages, modules, budget, délai, particularités). Format tableau si possible.
+- **Hors périmètre (NE PAS créer par Claude-le-constructeur)** : liste explicite des éléments exclus. Cette section est CRUCIALE pour cadrer l'agent qui construira le site.
+Cette section est destinée à Claude-le-constructeur qui va lire ce brief pour bâtir le site. Sois précis et exhaustif.
+
 ### 2. Résumé exécutif
 Un paragraphe dense qui synthétise le projet, les enjeux principaux et les recommandations clés. Ce résumé doit permettre à quelqu'un qui n'a pas le temps de lire tout le document de comprendre l'essentiel.
 
@@ -341,6 +359,11 @@ Roadmap suggérée avec étapes concrètes, livrables attendus et timeline indic
 ## Infos projet :
 - Entreprise : ${project.client_name}
 - Site : ${project.url || "Non renseigné"}
+${project.signed_scope ? `\n## CADRAGE DU DEVIS SIGNÉ (À AFFICHER EN TÊTE DU DOCUMENT)
+${project.signed_scope}
+
+INSTRUCTION : Ce cadrage doit apparaître dans le document final en SECTION 1 (juste après la page de garde), sous le titre "Périmètre du devis signé". Reformule-le proprement en respectant le contenu. Crée AUSSI une section "Hors périmètre" qui liste explicitement ce que Claude-le-constructeur NE doit PAS créer. Tout ce qui suit doit s'inscrire dans ce périmètre.
+` : ""}
 ${project.context ? `- Contexte initial fourni par le consultant :\n${project.context}\n` : ""}
 
 ## Conversation complète à analyser :
