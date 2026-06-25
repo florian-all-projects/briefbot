@@ -5,6 +5,10 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const password = searchParams.get('pw');
 
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return NextResponse.json({ error: 'Variables Supabase manquantes sur Vercel (NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY)' }, { status: 500 });
+  }
+
   if (password !== process.env.CONSULTANT_PASSWORD) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }
