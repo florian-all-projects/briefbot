@@ -131,8 +131,11 @@ export default function Dashboard() {
         setStoredPw(password);
         setAuthenticated(true);
         setProjects(data.projects || []);
-      } else {
+      } else if (res.status === 401) {
         setError('Mot de passe incorrect');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || `Erreur serveur (${res.status})`);
       }
     } catch (e) {
       setError('Erreur de connexion');
